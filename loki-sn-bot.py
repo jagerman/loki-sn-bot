@@ -8,6 +8,7 @@ import logging
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ParseMode
 from telegram.ext import (Updater, CommandHandler, MessageHandler, Filters, CallbackQueryHandler,
                           PicklePersistence)
+from telegram.error import TelegramError
 
 # auth token for the telegram bot; get this from @BotFather
 TELEGRAM_TOKEN = "FIXME"
@@ -73,14 +74,39 @@ def ago(seconds):
     return friendly_time(seconds) + ' ago'
 
 
+shutup = set()
 def send_reply(bot, update, message, reply_markup=None):
+    chat_id = None
     if update.message:
+        chat_id = update.message.chat.id
         update.message.reply_markdown(message, reply_markup=reply_markup)
     else:
+        chat_id = update.callback_query.message.chat_id
         bot.send_message(
-            chat_id=update.callback_query.message.chat_id,
+            chat_id=chat_id,
             text=message, parse_mode=ParseMode.MARKDOWN,
             reply_markup=reply_markup)
+    if chat_id and chat_id in shutup:
+        shutup.remove(chat_id)
+        print("removing {} from the shutup list (they contacted me again)", flush=True)
+
+
+# Send a message to t
+def send_message_or_shutup(bot, chatid, message, parse_mode=ParseMode.MARKDOWN, reply_markup=None):
+    """Send a message to the bot.  If the message gives a 'bot was blocked by the user' error then we ignore until a send_reply or a restart"""
+    if chatid in shutup:
+        return False
+    try:
+        bot.send_message(chatid, message, parse_mode=parse_mode, reply_markup=reply_markup)
+    except TelegramError as e:
+        if 'bot was blocked by the user' in e.message:
+            shutup.add(chatid)
+            print("user {} blocked me; stopped sending to them ({})".format(chatid, e), flush=True)
+        else:
+            print("Error sending message to {}: {}".format(chatid, e), flush=True)
+        return False
+
+    return True
 
 
 def main_menu(bot, update, user_data, reply=''):
@@ -245,8 +271,8 @@ def service_node_input(bot, update, user_data):
     else:
         found_at = len(user_data['sn'])
         sndata = { 'pubkey': pubkey, 'lrbh': sn_states[pubkey]['last_reward_block_height'] }
-        if sn_states[pubkey]['total_contributed'] < sn_states[pubkey]['staking_requirement']:
-            sndata['incomplete'] = True
+        if sn_states[pubkey]['total_contributed'] >= sn_states[pubkey]['staking_requirement']:
+            sndata['complete'] = True
         user_data['sn'].append(sndata)
         pp.flush()
         found = user_data['sn'][found_at]
@@ -265,6 +291,7 @@ def service_node(bot, update, user_data, i, reply_text = '', callback = None):
         reply_text = 'Current status of service node _{}_:\n\n'.format(name)
 
     reward_notify = 'rewards' in sn and sn['rewards']
+    expiry_notifications = 'expires_soon' in sn and sn['expires_soon']
     note = sn['note'] if 'note' in sn else None
     if note:
         reply_text += 'Note: ' + note + '\n'
@@ -308,6 +335,7 @@ def service_node(bot, update, user_data, i, reply_text = '', callback = None):
             reply_text += 'Next reward in *{}* blocks (approx. {})\n'.format(blocks_to_go, friendly_time(blocks_to_go * 120))
 
         reply_text += 'Reward notifications: *' + ('en' if reward_notify else 'dis') + 'abled*\n'
+        reply_text += 'Close-to-expiry notifications: *' + ('en' if reward_notify else 'dis') + 'abled*\n'
 
     menu = InlineKeyboardMarkup([
         [InlineKeyboardButton('Refresh', callback_data='refresh:{}'.format(i)),
@@ -323,6 +351,8 @@ def service_node(bot, update, user_data, i, reply_text = '', callback = None):
         [InlineKeyboardButton('Add custom note', callback_data='note:{}'.format(i))],
         [InlineKeyboardButton(('Disable' if reward_notify else 'Enable') + ' reward notifications',
             callback_data=('dis' if reward_notify else 'en') + 'able_reward:{}'.format(i))],
+        [InlineKeyboardButton(('Disable' if expiry_notifications else 'Enable') + ' close-to-expiry notifications',
+            callback_data=('dis' if expiry_notifications else 'en') + 'able_expires_soon:{}'.format(i))],
         [InlineKeyboardButton('< Service nodes', callback_data='sns'), InlineKeyboardButton('<< Main menu', callback_data='main')]
         ])
 
@@ -393,6 +423,22 @@ def enable_reward_notify(bot, update, user_data):
     user_data['sn'][i]['rewards'] = True
     pp.flush()
     return service_node(bot, update, user_data, i, 'Okay, I\'ll start sending you block reward notifications for _{}_.'.format(pubkey))
+
+
+def enable_expires_soon(bot, update, user_data):
+    i = int(update.callback_query.data.split(':', 1)[1])
+    pubkey = user_data['sn'][i]['pubkey']
+    user_data['sn'][i]['expires_soon'] = True
+    pp.flush()
+    return service_node(bot, update, user_data, i, 'Okay, I\'ll send you expiry notifications when _{}_ is close to expiry (48h, 24h, and 6h).'.format(pubkey))
+
+
+def disable_expires_soon(bot, update, user_data):
+    i = int(update.callback_query.data.split(':', 1)[1])
+    pubkey = user_data['sn'][i]['pubkey']
+    user_data['sn'][i]['expires_soon'] = False
+    pp.flush()
+    return service_node(bot, update, user_data, i, 'Okay, I\'ll stop sending you notifications when _{}_ is close to expiry.'.format(pubkey))
 
 
 def wallets_menu(bot, update, user_data, reply_text=''):
@@ -491,6 +537,10 @@ def dispatch_query(bot, update, user_data):
         call = enable_reward_notify
     elif re.match(r'disable_reward:\d+', q):
         call = disable_reward_notify
+    elif re.match(r'enable_expires_soon:\d+', q):
+        call = enable_expires_soon
+    elif re.match(r'disable_expires_soon:\d+', q):
+        call = disable_expires_soon
     elif q == 'wallets':
         call = wallets_menu
     elif re.match(r'forget_wallet:\w+', q):
@@ -509,6 +559,7 @@ def dispatch_query(bot, update, user_data):
 time_to_die = False
 def loki_updater():
     global network_info, sn_states, time_to_die, updater
+    expected_dereg_height = {}
     last = 0
     while not time_to_die:
         now = time.time()
@@ -526,6 +577,8 @@ def loki_updater():
         last = now
         network_info = status
         sn_states = { x['service_node_pubkey']: x for x in sns }
+        for x in sns:
+            expected_dereg_height[x['service_node_pubkey']] = x['registration_height'] + 30*720
 
         if pp:
             try:
@@ -543,11 +596,16 @@ def loki_updater():
                         name = sn['alias'] if 'alias' in sn else pubkey
                         if pubkey not in sn_states:
                             if 'notified_dereg' not in sn:
-                                updater.bot.send_message(
-                                    chatid, '🛑 *DEREGISTERED!* Service node _{}_ is no longer registered on the network! 😦'.format(name),
-                                    parse_mode=ParseMode.MARKDOWN)
-                                sn['notified_dereg'] = True
-                                save = True
+                                dereg_msg = ('📅 Service node _{}_ reached the end of its registration period and is no longer registered on the network.'.format(name)
+                                        if pubkey in expected_dereg_height and expected_dereg_height <= network_info['height'] else
+                                        '🛑 *UNEXPECTED DEREGISTRATION!* Service node _{}_ is no longer registered on the network! 😦'.format(name))
+                                if send_message_or_shutup(updater.bot, chatid, dereg_msg):
+                                    sn['notified_dereg'] = True
+                                    if 'complete' in sn:
+                                        del sn['complete']
+                                    if 'expiry_notified' in sn:
+                                        del sn['expiry_notified']
+                                    save = True
                             continue
                         elif 'notified_dereg' in sn:
                             del sn['notified_dereg']
@@ -559,32 +617,55 @@ def loki_updater():
                             proof_age = int(time.time() - info['last_uptime_proof'])
                             if proof_age >= PROOF_AGE_WARNING:
                                 if 'notified_age' not in sn or proof_age - sn['notified_age'] > PROOF_AGE_REPEAT:
-                                    updater.bot.send_message(
-                                        chatid, '⚠ *WARNING:* Service node _{}_ last uptime proof is *{}*'.format(name, uptime(info['last_uptime_proof'])),
-                                        parse_mode=ParseMode.MARKDOWN,
+                                    if send_message_or_shutup(updater.bot, chatid,
+                                        '⚠ *WARNING:* Service node _{}_ last uptime proof is *{}*'.format(name, uptime(info['last_uptime_proof'])),
                                         reply_markup=InlineKeyboardMarkup([[
                                             InlineKeyboardButton('SN details', callback_data='sn:{}'.format(i)),
                                             InlineKeyboardButton('lokiblocks.com', url='https://lokiblocks.com/service_node/{}'.format(pubkey))]])
-                                    )
-                                    sn['notified_age'] = proof_age
-                                    save = True
+                                    ):
+                                        sn['notified_age'] = proof_age
+                                        save = True
                             elif 'notified_age' in sn:
-                                del sn['notified_age']
-                                updater.bot.send_message(
-                                    chatid, '😌 Service node _{}_ last uptime proof received (now *{}*)'.format(name, uptime(info['last_uptime_proof'])),
-                                    parse_mode=ParseMode.MARKDOWN,
+                                if send_message_or_shutup(updater.bot, chatid,
+                                        '😌 Service node _{}_ last uptime proof received (now *{}*)'.format(name, uptime(info['last_uptime_proof'])),
+                                        reply_markup=InlineKeyboardMarkup([[
+                                            InlineKeyboardButton('SN details', callback_data='sn:{}'.format(i)),
+                                            InlineKeyboardButton('lokiblocks.com', url='https://lokiblocks.com/service_node/{}'.format(pubkey))]])
+                                ):
+                                    del sn['notified_age']
+                                    save = True
+
+                        was_incomplete = False
+                        if 'complete' not in sn and info['total_contributed'] >= info['staking_requirement']:
+                            if send_message_or_shutup(updater.bot, chatid,
+                                    '💚 Service node _{}_ is now fully staked and active!'.format(name),
                                     reply_markup=InlineKeyboardMarkup([[
                                         InlineKeyboardButton('SN details', callback_data='sn:{}'.format(i)),
-                                        InlineKeyboardButton('lokiblocks.com', url='https://lokiblocks.com/service_node/{}'.format(pubkey))]])
-                                )
+                                        InlineKeyboardButton('lokiblocks.com', url='https://lokiblocks.com/service_node/{}'.format(pubkey))]])):
+                                sn['complete'] = True
                                 save = True
+                            was_incomplete = True
+
+                        if 'expires_soon' in sn:
+                            expires_at = info['registration_height'] + 30*720
+                            expires_in = expires_at - network_info['height']
+                            expires_hours = expires_in / 30
+                            notify_time = 6 if expires_hours <= 6 else 24 if expires_hours <= 24 else 48 if expires_hours <= 48 else None
+                            if notify_time and expires_hours <= notify_time and ('expiry_notified' not in sn or sn['expiry_notified'] > notify_time):
+                                if send_message_or_shutup(updater.bot, chatid,
+                                        '⏱ Service node _{}_ registration expires in about {:.0f} hours (block _{}_)'.format(name, expires_hours, expires_at),
+                                        reply_markup=InlineKeyboardMarkup([[
+                                            InlineKeyboardButton('SN details', callback_data='sn:{}'.format(i)),
+                                            InlineKeyboardButton('lokiblocks.com', url='https://lokiblocks.com/service_node/{}'.format(pubkey))]])):
+                                    sn['expiry_notified'] = notify_time
+                                    save = True
 
                         lrbh = info['last_reward_block_height']
                         if 'lrbh' not in sn:
                             sn['lrbh'] = lrbh
                             save = True
                         elif 'lrbh' in sn and lrbh > sn['lrbh']:
-                            if 'rewards' in sn and sn['rewards'] and lrbh > info['registration_height']:
+                            if 'rewards' in sn and sn['rewards'] and not was_incomplete and info['total_contributed'] >= info['staking_requirement']:
                                 reward = 14 + 50 * 2**(-lrbh/64800)
                                 my_rewards = []
                                 if my_addrs and len(info['contributors']) > 1:
@@ -596,23 +677,14 @@ def loki_updater():
                                                 mine += operator_reward
                                             my_rewards.append('*{:.3f} LOKI* (_{}...{}_)'.format(mine, y['address'][0:7], y['address'][-3:]))
 
-                                updater.bot.send_message(
-                                        chatid, '💰 Service node _{}_ earned a reward of *{:.3f} LOKI* at height *{}*.'.format(name, reward, lrbh) + (
-                                            '  Your share: ' + ', '.join(my_rewards) if my_rewards else ''),
-                                        parse_mode=ParseMode.MARKDOWN)
-                            sn['lrbh'] = lrbh
-                            save = True
-
-                        if 'incomplete' in sn and sn['incomplete'] and info['total_contributed'] >= info['staking_requirement']:
-                            updater.bot.send_message(
-                                chatid, '💚 Service node _{}_ is now fully staked and active!'.format(name),
-                                parse_mode=ParseMode.MARKDOWN,
-                                reply_markup=InlineKeyboardMarkup([[
-                                    InlineKeyboardButton('SN details', callback_data='sn:{}'.format(i)),
-                                    InlineKeyboardButton('lokiblocks.com', url='https://lokiblocks.com/service_node/{}'.format(pubkey))]])
-                            )
-                            del sn['incomplete']
-                            save = True
+                                if send_message_or_shutup(updater.bot, chatid,
+                                        '💰 Service node _{}_ earned a reward of *{:.3f} LOKI* at height *{}*.'.format(name, reward, lrbh) + (
+                                            '  Your share: ' + ', '.join(my_rewards) if my_rewards else '')):
+                                    sn['lrbh'] = lrbh
+                                    save = True
+                            else:
+                                sn['lrbh'] = lrbh
+                                save = True
 
 
                 if save:
