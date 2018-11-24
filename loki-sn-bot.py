@@ -671,8 +671,10 @@ def loki_updater():
                             expires_hours = expires_in / 30
                             notify_time = 6 if expires_hours <= 6 else 24 if expires_hours <= 24 else 48 if expires_hours <= 48 else None
                             if notify_time and expires_hours <= notify_time and ('expiry_notified' not in sn or sn['expiry_notified'] > notify_time):
+                                expires_hours = round(expires_hours)
                                 if send_message_or_shutup(updater.bot, chatid,
-                                        '⏱ Service node _{}_ registration expires in about {:.0f} hours (block _{}_)'.format(name, expires_hours, expires_at),
+                                        '⏱ Service node _{}_ registration expires in about {:.0f} hour{} (block _{}_)'.format(
+                                            name, expires_hours, '' if expires_hours == 1 else 's', expires_at),
                                         reply_markup=sn_details_buttons):
                                     sn['expiry_notified'] = notify_time
                                     save = True
