@@ -307,8 +307,7 @@ def service_node(bot, update, user_data, i, reply_text = '', callback = None):
         info = sn_states[pubkey]
         height = network_info['height']
 
-        if 'alias' in sn:
-            reply_text += 'Public key: _{}_\n'.format(pubkey)
+        reply_text += 'Public key: _{}_\n'.format(pubkey)
 
         reply_text += 'Last uptime proof: ' + uptime(info['last_uptime_proof']) + '\n'
 
