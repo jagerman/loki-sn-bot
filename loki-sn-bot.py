@@ -608,6 +608,7 @@ def loki_updater():
                                     sn['notified_dereg'] = True
                                     if 'complete' in sn:
                                         del sn['complete']
+                                    sn['last_contributions'] = 0
                                     if 'expiry_notified' in sn:
                                         del sn['expiry_notified']
                                     save = True
@@ -634,14 +635,30 @@ def loki_updater():
                                     del sn['notified_age']
                                     save = True
 
-                        was_incomplete = False
-                        if 'complete' not in sn and info['total_contributed'] >= info['staking_requirement']:
-                            if send_message_or_shutup(updater.bot, chatid,
-                                    '💚 Service node _{}_ is now fully staked and active!'.format(name),
-                                    reply_markup=sn_details_buttons):
-                                sn['complete'] = True
-                                save = True
-                            was_incomplete = True
+                        just_completed = False
+                        if 'complete' not in sn:
+                            if 'last_contributions' not in sn or sn['last_contributions'] < info['total_contributed']:
+                                pct = info['total_contributed'] / info['staking_requirement'] * 100
+                                msg_part_a = ('{} Service node _{}_ is awaiting contributions.' if 'last_contributions' not in sn else
+                                        '{} Service node _{}_ received a contribution.').format(
+                                                '🌑' if pct < 26 else '🌒' if pct < 50 else '🌓' if pct < 75 else '🌔' if pct < 100 else '🌕', name)
+
+                                if send_message_or_shutup(updater.bot, chatid,
+                                        msg_part_a + '  Total contributions: _{:.9f}_ (_{:.1f}%_ of required _{:.9f}_).  Additional contribution required: _{:.9f}_.'.format(
+                                            info['total_contributed']*1e-9, pct, info['staking_requirement']*1e-9, (info['staking_requirement'] - info['total_contributed'])*1e-9),
+                                        reply_markup=sn_details_buttons):
+                                    sn['last_contributions'] = info['total_contributed']
+                                    save = True
+
+                            if info['total_contributed'] >= info['staking_requirement']:
+                                if send_message_or_shutup(updater.bot, chatid,
+                                        '💚 Service node _{}_ is now fully staked and active!'.format(name),
+                                        reply_markup=sn_details_buttons):
+                                    sn['complete'] = True
+                                    save = True
+                                just_completed = True
+
+
 
                         if 'expires_soon' in sn:
                             expires_at = info['registration_height'] + 30*720
@@ -660,7 +677,7 @@ def loki_updater():
                             sn['lrbh'] = lrbh
                             save = True
                         elif 'lrbh' in sn and lrbh > sn['lrbh']:
-                            if 'rewards' in sn and sn['rewards'] and not was_incomplete and info['total_contributed'] >= info['staking_requirement']:
+                            if 'rewards' in sn and sn['rewards'] and not just_completed and info['total_contributed'] >= info['staking_requirement']:
                                 reward = 14 + 50 * 2**(-lrbh/64800)
                                 my_rewards = []
                                 if my_addrs and len(info['contributors']) > 1:
