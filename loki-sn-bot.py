@@ -70,6 +70,10 @@ def friendly_time(seconds):
     return val
 
 
+def alias(sn):
+    return sn['alias'] if 'alias' in sn else sn['pubkey'][0:5] + '...' + sn['pubkey'][-3:]
+
+
 def ago(seconds):
     return friendly_time(seconds) + ' ago'
 
@@ -220,8 +224,7 @@ def service_node_input(bot, update, user_data):
         sn['note'] = update.message.text
         del user_data['want_note']
         pp.flush()
-        name = sn['alias'] if 'alias' in sn else 'pubkey'
-        return service_node(bot, update, user_data, i, 'Updated note for _{}_.  Current status:'.format(name))
+        return service_node(bot, update, user_data, i, 'Updated note for _{}_.  Current status:'.format(alias(sn)))
 
     elif 'want_alias' in user_data:
         i = user_data['want_alias']
@@ -284,11 +287,10 @@ def service_node_input(bot, update, user_data):
 def service_node(bot, update, user_data, i, reply_text = '', callback = None):
     sn = user_data['sn'][i]
     pubkey = sn['pubkey']
-    name = sn['alias'] if 'alias' in sn else pubkey
     if reply_text:
         reply_text += '\n\n'
     else:
-        reply_text = 'Current status of service node _{}_:\n\n'.format(name)
+        reply_text = 'Current status of service node _{}_:\n\n'.format(alias(sn))
 
     reward_notify = 'rewards' in sn and sn['rewards']
     expiry_notifications = 'expires_soon' in sn and sn['expires_soon']
@@ -593,7 +595,7 @@ def loki_updater():
                     for i in range(len(user_data['sn'])):
                         sn = user_data['sn'][i]
                         pubkey = sn['pubkey']
-                        name = sn['alias'] if 'alias' in sn else pubkey
+                        name = alias(sn)
                         if pubkey not in sn_states:
                             if 'notified_dereg' not in sn:
                                 dereg_msg = ('📅 Service node _{}_ reached the end of its registration period and is no longer registered on the network.'.format(name)
