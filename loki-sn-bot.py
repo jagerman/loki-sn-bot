@@ -596,12 +596,15 @@ def loki_updater():
                         sn = user_data['sn'][i]
                         pubkey = sn['pubkey']
                         name = alias(sn)
+                        sn_details_buttons = InlineKeyboardMarkup([[
+                            InlineKeyboardButton('SN details', callback_data='sn:{}'.format(i)),
+                            InlineKeyboardButton('lokiblocks.com', url='https://lokiblocks.com/service_node/{}'.format(pubkey))]])
                         if pubkey not in sn_states:
                             if 'notified_dereg' not in sn:
                                 dereg_msg = ('📅 Service node _{}_ reached the end of its registration period and is no longer registered on the network.'.format(name)
                                         if pubkey in expected_dereg_height and expected_dereg_height <= network_info['height'] else
                                         '🛑 *UNEXPECTED DEREGISTRATION!* Service node _{}_ is no longer registered on the network! 😦'.format(name))
-                                if send_message_or_shutup(updater.bot, chatid, dereg_msg):
+                                if send_message_or_shutup(updater.bot, chatid, dereg_msg, reply_markup=sn_details_buttons):
                                     sn['notified_dereg'] = True
                                     if 'complete' in sn:
                                         del sn['complete']
@@ -620,20 +623,14 @@ def loki_updater():
                             if proof_age >= PROOF_AGE_WARNING:
                                 if 'notified_age' not in sn or proof_age - sn['notified_age'] > PROOF_AGE_REPEAT:
                                     if send_message_or_shutup(updater.bot, chatid,
-                                        '⚠ *WARNING:* Service node _{}_ last uptime proof is *{}*'.format(name, uptime(info['last_uptime_proof'])),
-                                        reply_markup=InlineKeyboardMarkup([[
-                                            InlineKeyboardButton('SN details', callback_data='sn:{}'.format(i)),
-                                            InlineKeyboardButton('lokiblocks.com', url='https://lokiblocks.com/service_node/{}'.format(pubkey))]])
-                                    ):
+                                            '⚠ *WARNING:* Service node _{}_ last uptime proof is *{}*'.format(name, uptime(info['last_uptime_proof'])),
+                                            reply_markup=sn_details_buttons):
                                         sn['notified_age'] = proof_age
                                         save = True
                             elif 'notified_age' in sn:
                                 if send_message_or_shutup(updater.bot, chatid,
                                         '😌 Service node _{}_ last uptime proof received (now *{}*)'.format(name, uptime(info['last_uptime_proof'])),
-                                        reply_markup=InlineKeyboardMarkup([[
-                                            InlineKeyboardButton('SN details', callback_data='sn:{}'.format(i)),
-                                            InlineKeyboardButton('lokiblocks.com', url='https://lokiblocks.com/service_node/{}'.format(pubkey))]])
-                                ):
+                                        reply_markup=sn_details_buttons):
                                     del sn['notified_age']
                                     save = True
 
@@ -641,9 +638,7 @@ def loki_updater():
                         if 'complete' not in sn and info['total_contributed'] >= info['staking_requirement']:
                             if send_message_or_shutup(updater.bot, chatid,
                                     '💚 Service node _{}_ is now fully staked and active!'.format(name),
-                                    reply_markup=InlineKeyboardMarkup([[
-                                        InlineKeyboardButton('SN details', callback_data='sn:{}'.format(i)),
-                                        InlineKeyboardButton('lokiblocks.com', url='https://lokiblocks.com/service_node/{}'.format(pubkey))]])):
+                                    reply_markup=sn_details_buttons):
                                 sn['complete'] = True
                                 save = True
                             was_incomplete = True
@@ -656,9 +651,7 @@ def loki_updater():
                             if notify_time and expires_hours <= notify_time and ('expiry_notified' not in sn or sn['expiry_notified'] > notify_time):
                                 if send_message_or_shutup(updater.bot, chatid,
                                         '⏱ Service node _{}_ registration expires in about {:.0f} hours (block _{}_)'.format(name, expires_hours, expires_at),
-                                        reply_markup=InlineKeyboardMarkup([[
-                                            InlineKeyboardButton('SN details', callback_data='sn:{}'.format(i)),
-                                            InlineKeyboardButton('lokiblocks.com', url='https://lokiblocks.com/service_node/{}'.format(pubkey))]])):
+                                        reply_markup=sn_details_buttons):
                                     sn['expiry_notified'] = notify_time
                                     save = True
 
