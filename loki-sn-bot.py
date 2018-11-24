@@ -602,7 +602,7 @@ def loki_updater():
                         if pubkey not in sn_states:
                             if 'notified_dereg' not in sn:
                                 dereg_msg = ('📅 Service node _{}_ reached the end of its registration period and is no longer registered on the network.'.format(name)
-                                        if pubkey in expected_dereg_height and expected_dereg_height <= network_info['height'] else
+                                        if pubkey in expected_dereg_height and expected_dereg_height[pubkey] <= network_info['height'] else
                                         '🛑 *UNEXPECTED DEREGISTRATION!* Service node _{}_ is no longer registered on the network! 😦'.format(name))
                                 if send_message_or_shutup(updater.bot, chatid, dereg_msg, reply_markup=sn_details_buttons):
                                     sn['notified_dereg'] = True
