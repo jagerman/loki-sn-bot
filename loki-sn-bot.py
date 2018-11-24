@@ -183,9 +183,15 @@ def service_nodes_menu(bot, update, user_data, reply_text=''):
     sns = []
     for i in range(len(user_data['sn'])):
         sn = user_data['sn'][i]
-        sns.append([InlineKeyboardButton(
-            '{} ({}...{})'.format(sn['alias'], sn['pubkey'][0:5], sn['pubkey'][-3:]) if 'alias' in sn else sn['pubkey'],
-            callback_data='sn:{}'.format(i))])
+        shortpub = sn['pubkey'][0:5] + '...' + sn['pubkey'][-3:]
+        snbutton = InlineKeyboardButton(
+                '{} ({})'.format(sn['alias'], shortpub) if 'alias' in sn else shortpub,
+                callback_data='sn:{}'.format(i))
+        if i % 2 == 0:
+            sns.append([snbutton])
+        else:
+            sns[-1].append(snbutton)
+
 
     sns.append([InlineKeyboardButton('Add a service node', callback_data='add_sn'),
         InlineKeyboardButton('<< Main menu', callback_data='main')])
