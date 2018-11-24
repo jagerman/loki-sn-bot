@@ -342,7 +342,7 @@ def service_node(bot, update, user_data, i, reply_text = '', callback = None):
             reply_text += 'Next reward in *{}* blocks (approx. {})\n'.format(blocks_to_go, friendly_time(blocks_to_go * 120))
 
         reply_text += 'Reward notifications: *' + ('en' if reward_notify else 'dis') + 'abled*\n'
-        reply_text += 'Close-to-expiry notifications: *' + ('en' if reward_notify else 'dis') + 'abled*\n'
+        reply_text += 'Close-to-expiry notifications: *' + ('en' if expiry_notifications else 'dis') + 'abled*\n'
 
     menu = InlineKeyboardMarkup([
         [InlineKeyboardButton('Refresh', callback_data='refresh:{}'.format(i)),
