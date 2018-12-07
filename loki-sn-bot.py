@@ -320,14 +320,32 @@ def service_node(bot, update, user_data, i, reply_text = '', callback = None):
         expiry_block = info['registration_height'] + 30*720;
         reg_expiry = 'Block _{}_ (about _{}_)\n'.format(expiry_block, friendly_time(120 * (expiry_block + 1 - height)));
 
+        my_stakes = []
+        if 'wallets' in user_data and user_data['wallets']:
+            for y in info['contributors']:
+                if any(y['address'].startswith(x) for x in user_data['wallets']):
+                    my_stakes.append((y['amount'], y['address']))
+        if len(my_stakes) == 1:
+            my_stakes = 'My stake: *{:.9f}* (_{:.2f}%_)\n'.format(
+                    my_stakes[0][0]*1e-9, my_stakes[0][0]/info['staking_requirement']*100)
+        elif my_stakes:
+            my_stakes = ''.join(
+                    'My stake: *{:9f}* (_{:.2f}%_) — _{}...{}_\n'.format(
+                        x[0]*1e-9, x[0]/info['staking_requirement']*100, x[1][0:7], x[1][-3:])
+                    for x in my_stakes)
+        else:
+            my_stakes = ''
+
         if info['total_contributed'] < info['staking_requirement']:
             reply_text += 'Status: *awaiting contribution*\n'
             reply_text += 'Stake: _{:.9f}_ (_{:.1f}%_ of required _{:.9f}_; additional contribution required: {:.9f})\n'.format(
                     info['total_contributed']*1e-9, info['total_contributed'] / info['staking_requirement'] * 100, info['staking_requirement']*1e-9,
                     (info['staking_requirement'] - info['total_contributed'])*1e-9)
+            reply_text += my_stakes
             reply_text += 'Registration expiry: ' + reg_expiry
         else:
             reply_text += 'Status: *active*\nStake: *{:.9f}*\n'.format(info['staking_requirement']*1e-9)
+            reply_text += my_stakes
             reply_text += 'Registration expiry: ' + reg_expiry
             if info['last_reward_block_height'] > info['registration_height']:
                 reply_text += 'Last reward at height *{}* (approx. {})\n'.format(info['last_reward_block_height'], ago(
