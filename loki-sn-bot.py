@@ -78,6 +78,10 @@ def ago(seconds):
     return friendly_time(seconds) + ' ago'
 
 
+def moon_symbol(pct):
+    return '🌑' if pct < 26 else '🌒' if pct < 50 else '🌓' if pct < 75 else '🌔' if pct < 100 else '🌕'
+
+
 shutup = set()
 def send_reply(bot, update, message, reply_markup=None):
     chat_id = None
@@ -180,12 +184,24 @@ def status(bot, update, user_data):
 
 
 def service_nodes_menu(bot, update, user_data, reply_text=''):
+    global sn_states
     sns = []
     for i in range(len(user_data['sn'])):
         sn = user_data['sn'][i]
-        shortpub = sn['pubkey'][0:5] + '...' + sn['pubkey'][-3:]
+        status_icon = '🛑'
+        if sn['pubkey'] in sn_states:
+            info = sn_states[sn['pubkey']]
+
+            proof_age = int(time.time() - info['last_uptime_proof'])
+            if proof_age >= PROOF_AGE_WARNING:
+                status_icon = '⚠'
+            elif info['total_contributed'] < info['staking_requirement']:
+                status_icon = moon_symbol(info['total_contributed'] / info['staking_requirement'] * 100)
+            else:
+                status_icon = '💚'
+        shortpub = sn['pubkey'][0:5] + '…' + sn['pubkey'][-2:]
         snbutton = InlineKeyboardButton(
-                '{} ({})'.format(sn['alias'], shortpub) if 'alias' in sn else shortpub,
+                status_icon + ' ' + ('{} ({})'.format(sn['alias'], shortpub) if 'alias' in sn else shortpub),
                 callback_data='sn:{}'.format(i))
         if i % 2 == 0:
             sns.append([snbutton])
@@ -663,8 +679,7 @@ def loki_updater():
                             if 'last_contributions' not in sn or sn['last_contributions'] < info['total_contributed']:
                                 pct = info['total_contributed'] / info['staking_requirement'] * 100
                                 msg_part_a = ('{} Service node _{}_ is awaiting contributions.' if 'last_contributions' not in sn else
-                                        '{} Service node _{}_ received a contribution.').format(
-                                                '🌑' if pct < 26 else '🌒' if pct < 50 else '🌓' if pct < 75 else '🌔' if pct < 100 else '🌕', name)
+                                        '{} Service node _{}_ received a contribution.').format(moon_symbol(pct), name)
 
                                 if send_message_or_shutup(updater.bot, chatid,
                                         msg_part_a + '  Total contributions: _{:.9f}_ (_{:.1f}%_ of required _{:.9f}_).  Additional contribution required: _{:.9f}_.'.format(
