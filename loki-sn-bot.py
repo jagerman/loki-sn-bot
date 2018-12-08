@@ -82,6 +82,10 @@ def moon_symbol(pct):
     return '🌑' if pct < 26 else '🌒' if pct < 50 else '🌓' if pct < 75 else '🌔' if pct < 100 else '🌕'
 
 
+def escape_markdown(text):
+    return text.replace("_", "\\_").replace("*", "\\*").replace("[", "\\[").replace("`", "\\`")
+
+
 shutup = set()
 def send_reply(bot, update, message, reply_markup=None):
     chat_id = None
@@ -251,7 +255,7 @@ def service_node_input(bot, update, user_data):
     elif 'want_alias' in user_data:
         i = user_data['want_alias']
         sn = user_data['sn'][i]
-        sn['alias'] = update.message.text
+        sn['alias'] = update.message.text.replace("*", "").replace("_", "").replace("[", "").replace("`", "")
         del user_data['want_alias']
         pp.flush()
         return service_node(bot, update, user_data, i, 'Okay, I\'ll now refer to service node _{}_ as _{}_.  Current status:'.format(
@@ -318,7 +322,7 @@ def service_node(bot, update, user_data, i, reply_text = '', callback = None):
     expiry_notifications = 'expires_soon' in sn and sn['expires_soon']
     note = sn['note'] if 'note' in sn else None
     if note:
-        reply_text += 'Note: ' + note + '\n'
+        reply_text += 'Note: ' + escape_markdown(note) + '\n'
 
     if pubkey not in sn_states:
         if 'alias' in sn:
@@ -418,7 +422,7 @@ def add_note(bot, update, user_data):
     pp.flush()
     msg = "Send me a custom note to set for service node _{}_.".format(pubkey)
     if 'note' in sn and sn['note']:
-        msg += '\n\nThe current note is: ' + sn['note']
+        msg += '\n\nThe current note is: ' + escape_markdown(sn['note'])
     send_reply(bot, update, msg)
 
 
