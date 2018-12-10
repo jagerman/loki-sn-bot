@@ -201,6 +201,8 @@ def service_nodes_menu(bot, update, user_data, reply_text=''):
                 status_icon = '⚠'
             elif info['total_contributed'] < info['staking_requirement']:
                 status_icon = moon_symbol(info['total_contributed'] / info['staking_requirement'] * 100)
+            elif info['registration_height'] + 30*720 - network_info['height'] < 48*30:
+                status_icon = '⏱'
             else:
                 status_icon = '💚'
         shortpub = sn['pubkey'][0:5] + '…' + sn['pubkey'][-2:]
@@ -214,6 +216,8 @@ def service_nodes_menu(bot, update, user_data, reply_text=''):
 
 
     sns.append([InlineKeyboardButton('Add a service node', callback_data='add_sn'),
+        InlineKeyboardButton('Show expirations', callback_data='sns_expiries')]);
+    sns.append([
         InlineKeyboardButton('<< Main menu', callback_data='main')])
 
     sn_menu = InlineKeyboardMarkup(sns)
@@ -222,6 +226,44 @@ def service_nodes_menu(bot, update, user_data, reply_text=''):
     reply_text += 'View an existing service node, or add a new one?'
 
     send_reply(bot, update, reply_text, reply_markup=sn_menu)
+
+
+def service_nodes_expiries(bot, update, user_data):
+    global sn_states, network_info
+    sns = []
+    for i in range(len(user_data['sn'])):
+        sn = user_data['sn'][i]
+        row = { 'sn': sn }
+        row['icon'] = '🛑'
+        if sn['pubkey'] in sn_states:
+            info = sn_states[sn['pubkey']]
+
+            proof_age = int(time.time() - info['last_uptime_proof'])
+            if proof_age >= PROOF_AGE_WARNING:
+                row['icon'] = '⚠'
+            elif info['total_contributed'] < info['staking_requirement']:
+                row['icon'] = moon_symbol(info['total_contributed'] / info['staking_requirement'] * 100)
+            elif info['registration_height'] + 30*720 - network_info['height'] < 48*30:
+                row['icon'] = '⏱'
+            else:
+                row['icon'] = '💚'
+            row['info'] = info
+
+        sns.append(row)
+
+    sns.sort(key=lambda s: s['info']['registration_height'] if 'info' in s else 0)
+
+    msg = '*Service nodes expirations:*\n'
+    for sn in sns:
+        msg += '{} {}: '.format(sn['icon'], alias(sn['sn']))
+        if 'info' in sn:
+            expiry_block = sn['info']['registration_height'] + 30*720
+            msg += 'Block _{}_ (_{}_)\n'.format(
+                    expiry_block, friendly_time(120 * (expiry_block + 1 - network_info['height'])))
+        else:
+            msg += 'Expired/deregistered\n'
+
+    service_nodes_menu(bot, update, user_data, reply_text=msg)
 
 
 def service_node_add(bot, update, user_data):
@@ -558,6 +600,8 @@ def dispatch_query(bot, update, user_data):
         call = intro
     elif q == 'sns':
         call = service_nodes_menu
+    elif q == 'sns_expiries':
+        call = service_nodes_expiries
     elif q == 'status':
         call = status
     elif q == 'add_sn':
