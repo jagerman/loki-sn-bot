@@ -40,6 +40,7 @@ sn_states = None
 
 PROOF_AGE_WARNING = 3600 + 300  # 1 hour plus 5 minutes of grace time (uptime proofs can take slightly more than an hour)
 PROOF_AGE_REPEAT = 600  # How often to repeat the alert
+STAKE_BLOCKS = 720*30 + 20
 
 def uptime(ts):
     if not ts:
@@ -201,7 +202,7 @@ def service_nodes_menu(bot, update, user_data, reply_text=''):
                 status_icon = '⚠'
             elif info['total_contributed'] < info['staking_requirement']:
                 status_icon = moon_symbol(info['total_contributed'] / info['staking_requirement'] * 100)
-            elif info['registration_height'] + 30*720 - network_info['height'] < 48*30:
+            elif info['registration_height'] + STAKE_BLOCKS - network_info['height'] < 48*30:
                 status_icon = '⏱'
             else:
                 status_icon = '💚'
@@ -243,7 +244,7 @@ def service_nodes_expiries(bot, update, user_data):
                 row['icon'] = '⚠'
             elif info['total_contributed'] < info['staking_requirement']:
                 row['icon'] = moon_symbol(info['total_contributed'] / info['staking_requirement'] * 100)
-            elif info['registration_height'] + 30*720 - network_info['height'] < 48*30:
+            elif info['registration_height'] + STAKE_BLOCKS - network_info['height'] < 48*30:
                 row['icon'] = '⏱'
             else:
                 row['icon'] = '💚'
@@ -257,7 +258,7 @@ def service_nodes_expiries(bot, update, user_data):
     for sn in sns:
         msg += '{} {}: '.format(sn['icon'], alias(sn['sn']))
         if 'info' in sn:
-            expiry_block = sn['info']['registration_height'] + 30*720
+            expiry_block = sn['info']['registration_height'] + STAKE_BLOCKS
             msg += 'Block _{}_ (_{}_)\n'.format(
                     expiry_block, friendly_time(120 * (expiry_block + 1 - network_info['height'])))
         else:
@@ -379,8 +380,8 @@ def service_node(bot, update, user_data, i, reply_text = '', callback = None):
 
         reply_text += 'Last uptime proof: ' + uptime(info['last_uptime_proof']) + '\n'
 
-        expiry_block = info['registration_height'] + 30*720;
-        reg_expiry = 'Block _{}_ (about _{}_)\n'.format(expiry_block, friendly_time(120 * (expiry_block + 1 - height)));
+        expiry_block = info['registration_height'] + STAKE_BLOCKS
+        reg_expiry = 'Block *{}* (approx. {})\n'.format(expiry_block, friendly_time(120 * (expiry_block + 1 - height)));
 
         my_stakes = []
         if 'wallets' in user_data and user_data['wallets']:
@@ -667,7 +668,7 @@ def loki_updater():
         network_info = status
         sn_states = { x['service_node_pubkey']: x for x in sns }
         for x in sns:
-            expected_dereg_height[x['service_node_pubkey']] = x['registration_height'] + 30*720
+            expected_dereg_height[x['service_node_pubkey']] = x['registration_height'] + STAKE_BLOCKS
 
         if pp:
             try:
@@ -747,7 +748,7 @@ def loki_updater():
 
 
                         if 'expires_soon' in sn:
-                            expires_at = info['registration_height'] + 30*720
+                            expires_at = info['registration_height'] + STAKE_BLOCKS
                             expires_in = expires_at - network_info['height']
                             expires_hours = expires_in / 30
                             notify_time = 6 if expires_hours <= 6 else 24 if expires_hours <= 24 else 48 if expires_hours <= 48 else None
