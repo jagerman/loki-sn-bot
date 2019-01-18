@@ -1,0 +1,20 @@
+# Configuration file for loki-sn-bot; copy this file to loki_sn_bot_config.py and update the
+# following:
+
+# auth token for the telegram bot; get this from @BotFather
+TELEGRAM_TOKEN = "FIXME"
+
+# file to store persistent data in (e.g. last update, SNs, etc.); the default is usually fine.
+PERSISTENCE_FILENAME = 'lokisnbot.data'
+
+# URL to a loki node's RPC interface.  Should not end in a /.  The node provides all the SN network
+# status.  Note that restarting the node will result in a loss of last uptime proof data: if you
+# need to restart the node you may want to temporarily switch this to some other, public node for a
+# couple hours.  (Restarting the bot, on the other hand, won't reset anything, so changing this,
+# restarting the bot, then changing back after 2 hours and restarting again is perfectly fine and
+# won't miss any updates).
+NODE_URL = 'http://localhost:22023'
+
+# Telegram handle of the bot's owner.  This gets used in the bot's welcome message.
+OWNER = 'FIXME'
+

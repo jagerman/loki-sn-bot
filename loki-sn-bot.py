@@ -10,18 +10,7 @@ from telegram.ext import (Updater, CommandHandler, MessageHandler, Filters, Call
                           PicklePersistence)
 from telegram.error import TelegramError
 
-# auth token for the telegram bot; get this from @BotFather
-TELEGRAM_TOKEN = "FIXME"
-
-# file to store persistent data in (e.g. last update, SNs, etc.)
-PERSISTENCE_FILENAME = 'lokisnbot.data'
-
-# URL to a loki node.  Should not end in a /
-NODE_URL = 'http://localhost:22023'
-
-# Telegram handle of the bot's owner
-OWNER = 'FIXME'
-
+from loki_sn_bot_config import TELEGRAM_TOKEN, PERSISTENCE_FILENAME, NODE_URL, OWNER
 
 
 
