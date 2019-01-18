@@ -325,19 +325,20 @@ def service_node_input(bot, update, user_data):
     if found:
         reply_text = 'I am _already_ monitoring service node _{}_ for you.  Current status:'.format(pubkey)
 
-    elif pubkey not in sn_states:
-        reply_text = 'I\'m sorry, I can\'t monitor service node _{}_ for you: it isn\'t currently registered on the network.'.format(pubkey)
-        return service_nodes_menu(bot, update, user_data, reply_text)
-
     else:
         found_at = len(user_data['sn'])
-        sndata = { 'pubkey': pubkey, 'lrbh': sn_states[pubkey]['last_reward_block_height'] }
-        if sn_states[pubkey]['total_contributed'] >= sn_states[pubkey]['staking_requirement']:
-            sndata['complete'] = True
+        sndata = { 'pubkey': pubkey }
+        if pubkey in sn_states:
+            sndata['lrbh'] = sn_states[pubkey]['last_reward_block_height']
+            if sn_states[pubkey]['total_contributed'] >= sn_states[pubkey]['staking_requirement']:
+                sndata['complete'] = True
+            reply_text = 'Okay, I\'m now monitoring service node _{}_ for you.  Current status:'.format(pubkey)
+        else:
+            reply_text = 'Service node _{}_ isn\'t currently registered on the network, but I\'ll start monitoring it for you once it appears.'.format(pubkey)
+
         user_data['sn'].append(sndata)
         pp.flush()
         found = user_data['sn'][found_at]
-        reply_text = 'Okay, I\'m now monitoring service node _{}_ for you.  Current status:'.format(pubkey)
 
     return service_node(bot, update, user_data, found_at, reply_text)
 
