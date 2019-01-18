@@ -750,6 +750,9 @@ def loki_updater():
                                         reply_markup=sn_details_buttons):
                                     sn['expiry_notified'] = notify_time
                                     save = True
+                            elif notify_time is None:
+                                del sn['expiry_notified']
+                                save = True
 
                         lrbh = info['last_reward_block_height']
                         if 'lrbh' not in sn:
