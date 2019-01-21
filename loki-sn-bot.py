@@ -750,7 +750,7 @@ def loki_updater():
                                         reply_markup=sn_details_buttons):
                                     sn['expiry_notified'] = notify_time
                                     save = True
-                            elif notify_time is None:
+                            elif notify_time is None and 'expiry_notified' in sn:
                                 del sn['expiry_notified']
                                 save = True
 
