@@ -139,9 +139,9 @@ def main_menu(bot, update, user_data, reply=''):
 
 welcome_message = (
         'Hi!  I can give you loki service node information and send you alerts if the uptime proof for your service node(s) gets too long.  ' +
-        'I can also optionally let you know when your service nodes earn a payment and when your service node is nearing expiry.\n' +
-        ('\nThis bot is operated by ' + OWNER + '\n' if OWNER else '') +
-        ('\n' + EXTRA + '\n' if EXTRA else '')
+        'I can also optionally let you know when your service nodes earn a payment and when your service node is nearing expiry.' +
+        ('\n\nThis bot is operated by ' + OWNER if OWNER else '') +
+        ('\n\n' + EXTRA if EXTRA else '')
 )
 
 
