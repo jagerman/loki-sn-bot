@@ -137,19 +137,22 @@ def main_menu(bot, update, user_data, reply=''):
     send_reply(bot, update, reply, reply_markup=choices)
 
 
+welcome_message = (
+        'Hi!  I can give you loki service node information and send you alerts if the uptime proof for your service node(s) gets too long.  ' +
+        'I can also optionally let you know when your service nodes earn a payment and when your service node is nearing expiry.\n\n' +
+        '(If I break, you should contact ' + OWNER + ')\n\n' +
+        'I\'m open source code available under the GPLv3 at: https://github.com/jagerman/loki-sn-bot\n')
+
+
 def start(bot, update, user_data):
-    reply_text = 'Hi!  I can give you loki service node information and send you alerts if the uptime proof for your service node(s) gets too long.  I can also optionally let you know when your service nodes earn a payment.\n'
-    reply_text += '\n(If I break, you should contact ' + OWNER + ')\n'
     if 'sn' not in user_data:
         user_data['sn'] = []
         pp.flush()
-    return main_menu(bot, update, user_data, reply_text)
+    return main_menu(bot, update, user_data, welcome_message)
 
 
 def intro(bot, update, user_data):
-    reply_text = 'Hi!  I can give you loki service node information and send you alerts if the uptime proof for your service node(s) gets too long.  I can also optionally let you know when your service nodes earn a payment.\n'
-    reply_text += '\n(If I break, you should contact ' + OWNER + ')\n'
-    return main_menu(bot, update, user_data, reply_text)
+    return main_menu(bot, update, user_data, welcome_message)
 
 
 def status(bot, update, user_data):
