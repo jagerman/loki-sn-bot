@@ -176,7 +176,24 @@ def status(bot, update, user_data):
     lsr = max(10000 + 35000 * 2**((101250-h)/129600.), min(5*h/2592 + 8000, 15000))
     snbr = 0.5 * (28 + 100 * 2**(-h/64800))
     reply_text += 'Current SN stake requirement: *{:.2f}* LOKI\n'.format(lsr)
-    reply_text += 'Current SN reward: *{:.4f}* LOKI'.format(snbr)
+    reply_text += 'Current SN reward: *{:.4f}* LOKI\n'.format(snbr)
+
+    globaldata = pp.get_user_data()
+    monitored_sns = set()
+    active_users = 0
+    for chatid, user_data in globaldata.items():
+        if 'sn' not in user_data or not user_data['sn']:
+            continue
+        active_user_sns = 0
+        for sn in user_data['sn']:
+            if sn['pubkey'] in sn_states:
+                active_user_sns += 1
+                monitored_sns.add(sn['pubkey'])
+        if active_user_sns > 0:
+            active_users += 1
+
+    reply_text += 'I am currently monitoring *{}* active service nodes (*{:.1f}%*) on behalf of *{}* users.'.format(
+            len(monitored_sns), 100 * len(monitored_sns) / (active + waiting), active_users)
 
     return main_menu(bot, update, user_data, reply_text)
 
