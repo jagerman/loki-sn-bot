@@ -10,7 +10,7 @@ from telegram.ext import (Updater, CommandHandler, MessageHandler, Filters, Call
                           PicklePersistence)
 from telegram.error import TelegramError
 
-from loki_sn_bot_config import TELEGRAM_TOKEN, PERSISTENCE_FILENAME, NODE_URL, OWNER
+from loki_sn_bot_config import TELEGRAM_TOKEN, PERSISTENCE_FILENAME, NODE_URL, OWNER, EXTRA
 
 
 
@@ -81,13 +81,16 @@ def send_reply(bot, update, message, reply_markup=None):
     chat_id = None
     if update.message:
         chat_id = update.message.chat.id
-        update.message.reply_markdown(message, reply_markup=reply_markup)
+        update.message.reply_markdown(message,
+                reply_markup=reply_markup,
+                disable_web_page_preview=True)
     else:
         chat_id = update.callback_query.message.chat_id
         bot.send_message(
             chat_id=chat_id,
             text=message, parse_mode=ParseMode.MARKDOWN,
-            reply_markup=reply_markup)
+            reply_markup=reply_markup,
+            disable_web_page_preview=True)
     if chat_id and chat_id in shutup:
         shutup.remove(chat_id)
         print("removing {} from the shutup list (they contacted me again)", flush=True)
@@ -139,9 +142,10 @@ def main_menu(bot, update, user_data, reply=''):
 
 welcome_message = (
         'Hi!  I can give you loki service node information and send you alerts if the uptime proof for your service node(s) gets too long.  ' +
-        'I can also optionally let you know when your service nodes earn a payment and when your service node is nearing expiry.\n\n' +
-        '(If I break, you should contact ' + OWNER + ')\n\n' +
-        'I\'m open source code available under the GPLv3 at: https://github.com/jagerman/loki-sn-bot\n')
+        'I can also optionally let you know when your service nodes earn a payment and when your service node is nearing expiry.\n' +
+        ('\nThis bot is operated by ' + OWNER + '\n' if OWNER else '') +
+        ('\n' + EXTRA + '\n' if EXTRA else '')
+)
 
 
 def start(bot, update, user_data):

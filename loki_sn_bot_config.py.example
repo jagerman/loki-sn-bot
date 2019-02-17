@@ -15,6 +15,9 @@ PERSISTENCE_FILENAME = 'lokisnbot.data'
 # won't miss any updates).
 NODE_URL = 'http://localhost:22023'
 
-# Telegram handle of the bot's owner.  This gets used in the bot's welcome message.
+# Telegram handle of the bot's owner.  This gets used in the bot's welcome message.  If set to None
+# or '' it will not be shown.
 OWNER = 'FIXME'
 
+# Extra information to include in the main menu/start message.  Set to None or '' to omit:
+EXTRA = 'This bot is free software available under a GPLv3+ license at: https://github.com/jagerman/loki-sn-bot\n\n'
