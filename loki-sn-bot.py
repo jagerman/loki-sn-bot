@@ -76,7 +76,6 @@ def escape_markdown(text):
     return text.replace("_", "\\_").replace("*", "\\*").replace("[", "\\[").replace("`", "\\`")
 
 
-shutup = set()
 def send_reply(bot, update, message, reply_markup=None):
     chat_id = None
     if update.message:
@@ -91,22 +90,20 @@ def send_reply(bot, update, message, reply_markup=None):
             text=message, parse_mode=ParseMode.MARKDOWN,
             reply_markup=reply_markup,
             disable_web_page_preview=True)
-    if chat_id and chat_id in shutup:
-        shutup.remove(chat_id)
-        print("removing {} from the shutup list (they contacted me again)", flush=True)
 
 
 # Send a message to t
 def send_message_or_shutup(bot, chatid, message, parse_mode=ParseMode.MARKDOWN, reply_markup=None):
-    """Send a message to the bot.  If the message gives a 'bot was blocked by the user' error then we ignore until a send_reply or a restart"""
-    if chatid in shutup:
-        return False
+    """Send a message to the bot.  If the message gives a 'bot was blocked by the user' error then we delete them."""
     try:
         bot.send_message(chatid, message, parse_mode=parse_mode, reply_markup=reply_markup)
     except TelegramError as e:
         if 'bot was blocked by the user' in e.message:
-            shutup.add(chatid)
-            print("user {} blocked me; stopped sending to them ({})".format(chatid, e), flush=True)
+            print("user {} blocked me; I was trying to send:\n{}\nremoving them from monitoring list ({})".format(chatid, message, e), flush=True)
+            globaldata = pp.get_user_data()
+            if chatid in globaldata and 'sn' in globaldata[chatid]:
+                del globaldata[chatid]['sn']
+                pp.flush()
         else:
             print("Error sending message to {}: {}".format(chatid, e), flush=True)
         return False
