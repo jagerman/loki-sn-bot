@@ -111,10 +111,10 @@ def send_message_or_shutup(bot, chatid, message, parse_mode=ParseMode.MARKDOWN, 
     return True
 
 
-def main_menu(bot, update, user_data, reply=''):
+def main_menu(bot, update, user_data, reply='', last_button=InlineKeyboardButton('Status', callback_data='status')):
     choices = InlineKeyboardMarkup([
         [InlineKeyboardButton('Service node(s)', callback_data='sns'), InlineKeyboardButton('Wallet(s)', callback_data='wallets')],
-        [InlineKeyboardButton('Status', callback_data='status')]
+        [last_button]
     ])
 
     need_flush = False
@@ -195,7 +195,7 @@ def status(bot, update, user_data):
     reply_text += 'I am currently monitoring *{}* active service nodes (*{:.1f}%*) on behalf of *{}* users.'.format(
             len(monitored_sns), 100 * len(monitored_sns) / (active + waiting), active_users)
 
-    return main_menu(bot, update, user_data, reply_text)
+    return main_menu(bot, update, user_data, reply_text, last_button=InlineKeyboardButton('<< Main menu', callback_data='main'))
 
 
 def service_nodes_menu(bot, update, user_data, reply_text=''):
