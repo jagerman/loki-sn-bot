@@ -181,11 +181,11 @@ def status(bot, update, user_data):
     globaldata = pp.get_user_data()
     monitored_sns = set()
     active_users = 0
-    for chatid, user_data in globaldata.items():
-        if 'sn' not in user_data or not user_data['sn']:
+    for chatid, ud in globaldata.items():
+        if 'sn' not in ud or not ud['sn']:
             continue
         active_user_sns = 0
-        for sn in user_data['sn']:
+        for sn in ud['sn']:
             if sn['pubkey'] in sn_states:
                 active_user_sns += 1
                 monitored_sns.add(sn['pubkey'])
