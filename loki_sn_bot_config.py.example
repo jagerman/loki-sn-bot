@@ -15,6 +15,11 @@ PGSQL_CONNECT = { 'dbname': 'lokisnbot' }
 # won't miss any updates).
 NODE_URL = 'http://localhost:22023'
 
+# If set to a URL, the bot can also report about the testnet (if you want *only* testnet, use the
+# plain NODE_URL setting instead).  To disable, set to None.
+TESTNET_NODE_URL = None
+#TESTNET_NODE_URL = 'http://localhost:38157'
+
 # Telegram handle of the bot's owner.  This gets used in the bot's welcome message.  If set to None
 # or '' it will not be shown.
 OWNER = 'FIXME'
