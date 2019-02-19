@@ -5,12 +5,14 @@ import time
 import re
 import requests
 import logging
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ParseMode
-from telegram.ext import (Updater, CommandHandler, MessageHandler, Filters, CallbackQueryHandler,
-                          PicklePersistence)
+import traceback
+import psycopg2, psycopg2.extras
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ParseMode, Update
+from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackQueryHandler, CallbackContext
+from telegram.ext.dispatcher import run_async
 from telegram.error import TelegramError
 
-from loki_sn_bot_config import TELEGRAM_TOKEN, PERSISTENCE_FILENAME, NODE_URL, OWNER, EXTRA
+from loki_sn_bot_config import TELEGRAM_TOKEN, PGSQL_CONNECT, NODE_URL, OWNER, EXTRA
 
 
 
@@ -20,7 +22,7 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 
 logger = logging.getLogger(__name__)
 
-pp = None
+pgsql = None
 updater = None
 
 network_info = None
@@ -61,7 +63,7 @@ def friendly_time(seconds):
 
 
 def alias(sn):
-    return sn['alias'] if 'alias' in sn else sn['pubkey'][0:5] + '...' + sn['pubkey'][-3:]
+    return sn['alias'] or sn['pubkey'][0:5] + '...' + sn['pubkey'][-3:]
 
 
 def ago(seconds):
@@ -76,7 +78,7 @@ def escape_markdown(text):
     return text.replace("_", "\\_").replace("*", "\\*").replace("[", "\\[").replace("`", "\\`")
 
 
-def send_reply(bot, update, message, reply_markup=None):
+def send_reply(update: Update, context: CallbackContext, message, reply_markup=None):
     chat_id = None
     if update.message:
         chat_id = update.message.chat.id
@@ -85,25 +87,23 @@ def send_reply(bot, update, message, reply_markup=None):
                 disable_web_page_preview=True)
     else:
         chat_id = update.callback_query.message.chat_id
-        bot.send_message(
+        context.bot.send_message(
             chat_id=chat_id,
             text=message, parse_mode=ParseMode.MARKDOWN,
             reply_markup=reply_markup,
             disable_web_page_preview=True)
 
 
-# Send a message to t
 def send_message_or_shutup(bot, chatid, message, parse_mode=ParseMode.MARKDOWN, reply_markup=None):
-    """Send a message to the bot.  If the message gives a 'bot was blocked by the user' error then we delete them."""
+    """Send a message to the bot.  If the message gives a 'bot was blocked by the user' error then
+    we delete the user's service_nodes (to stop generating more messages)."""
     try:
         bot.send_message(chatid, message, parse_mode=parse_mode, reply_markup=reply_markup)
     except TelegramError as e:
         if 'bot was blocked by the user' in e.message:
-            print("user {} blocked me; I was trying to send:\n{}\nremoving them from monitoring list ({})".format(chatid, message, e), flush=True)
-            globaldata = pp.get_user_data()
-            if chatid in globaldata and 'sn' in globaldata[chatid]:
-                del globaldata[chatid]['sn']
-                pp.flush()
+            print("user {} blocked me; removing them from SN monitoring ({})".format(chatid, e), flush=True)
+
+            pgsql.cursor().execute("DELETE FROM service_nodes WHERE uid = (SELECT id FROM users WHERE telegram_id = %s)", (chatid,))
         else:
             print("Error sending message to {}: {}".format(chatid, e), flush=True)
         return False
@@ -111,7 +111,22 @@ def send_message_or_shutup(bot, chatid, message, parse_mode=ParseMode.MARKDOWN, 
     return True
 
 
-def main_menu(bot, update, user_data, reply='', last_button=InlineKeyboardButton('Status', callback_data='status')):
+def get_uid(update, context):
+    """Returns the user id in the pg database"""
+    if 'uid' not in context.user_data:
+        cur = pgsql.cursor()
+        cur.execute("SELECT id FROM users WHERE telegram_id = %s", (update.effective_user.id,))
+        row = cur.fetchone()
+        if row is None:
+            cur.execute("INSERT INTO users (telegram_id) VALUES (%s) RETURNING id", (update.effective_user.id,))
+            row = cur.fetchone()
+        if row is None:
+            return None
+        context.user_data['uid'] = row[0]
+    return context.user_data['uid']
+
+
+def main_menu(update: Update, context: CallbackContext, reply='', last_button=InlineKeyboardButton('Status', callback_data='status')):
     choices = InlineKeyboardMarkup([
         [InlineKeyboardButton('Service node(s)', callback_data='sns'), InlineKeyboardButton('Wallet(s)', callback_data='wallets')],
         [last_button]
@@ -119,22 +134,22 @@ def main_menu(bot, update, user_data, reply='', last_button=InlineKeyboardButton
 
     need_flush = False
     for x in ('want_alias', 'want_note', 'want_wallet'):
-        if x in user_data:
-            del user_data[x]
-            need_flush = True
-    if need_flush:
-        pp.flush()
+        if x in context.user_data:
+            del context.user_data[x]
 
     if reply:
         reply += '\n\n'
 
-    if user_data and 'sn' in user_data and user_data['sn']:
-        num = len(user_data['sn'])
+    uid = get_uid(update, context)
+    cur = pgsql.cursor()
+    cur.execute("SELECT COUNT(*) FROM service_nodes WHERE uid = %s", (uid,))
+    num = cur.fetchone()[0]
+    if num > 0:
         reply += "I am currently monitoring *{}* service node{} for you.".format(num, 's' if num != 1 else '')
     else:
         reply += "I am not currently monitoring any service nodes for you."
 
-    send_reply(bot, update, reply, reply_markup=choices)
+    send_reply(update, context, reply, reply_markup=choices)
 
 
 welcome_message = (
@@ -145,18 +160,13 @@ welcome_message = (
 )
 
 
-def start(bot, update, user_data):
-    if 'sn' not in user_data:
-        user_data['sn'] = []
-        pp.flush()
-    return main_menu(bot, update, user_data, welcome_message)
+@run_async
+def start(update: Update, context: CallbackContext):
+    return main_menu(update, context, welcome_message)
 
 
-def intro(bot, update, user_data):
-    return main_menu(bot, update, user_data, welcome_message)
-
-
-def status(bot, update, user_data):
+@run_async
+def status(update: Update, context: CallbackContext):
     sns = sn_states
     active, waiting, old_proof = 0, 0, 0
     now = int(time.time())
@@ -178,214 +188,208 @@ def status(bot, update, user_data):
     reply_text += 'Current SN stake requirement: *{:.2f}* LOKI\n'.format(lsr)
     reply_text += 'Current SN reward: *{:.4f}* LOKI\n'.format(snbr)
 
-    globaldata = pp.get_user_data()
-    monitored_sns = set()
-    active_users = 0
-    for chatid, ud in globaldata.items():
-        if 'sn' not in ud or not ud['sn']:
-            continue
-        active_user_sns = 0
-        for sn in ud['sn']:
-            if sn['pubkey'] in sn_states:
-                active_user_sns += 1
-                monitored_sns.add(sn['pubkey'])
-        if active_user_sns > 0:
-            active_users += 1
+    cur = pgsql.cursor()
+    cur.execute("SELECT COUNT(*) FROM (SELECT DISTINCT pubkey FROM service_nodes WHERE active) AS sns")
+    monitored_sns = cur.fetchone()[0]
+    cur.execute("SELECT COUNT(*) FROM (SELECT DISTINCT users.id FROM users JOIN service_nodes ON uid = users.id WHERE active) AS usrs")
+    active_users = cur.fetchone()[0]
 
     reply_text += 'I am currently monitoring *{}* active service nodes (*{:.1f}%*) on behalf of *{}* users.'.format(
-            len(monitored_sns), 100 * len(monitored_sns) / (active + waiting), active_users)
+            monitored_sns, 100 * monitored_sns / (active + waiting), active_users)
 
-    return main_menu(bot, update, user_data, reply_text, last_button=InlineKeyboardButton('<< Main menu', callback_data='main'))
+    return main_menu(update, context, reply_text, last_button=InlineKeyboardButton('<< Main menu', callback_data='main'))
 
 
-def service_nodes_menu(bot, update, user_data, reply_text=''):
-    global sn_states
-    sns = []
-    for i in range(len(user_data['sn'])):
-        sn = user_data['sn'][i]
-        status_icon = '🛑'
-        if sn['pubkey'] in sn_states:
-            info = sn_states[sn['pubkey']]
+def sn_status_icon(pubkey):
+    sns, ninfo = sn_states, network_info
+    status_icon = '🛑'
+    if pubkey in sns:
+        info = sns[pubkey]
 
-            proof_age = int(time.time() - info['last_uptime_proof'])
-            if proof_age >= PROOF_AGE_WARNING:
-                status_icon = '⚠'
-            elif info['total_contributed'] < info['staking_requirement']:
-                status_icon = moon_symbol(info['total_contributed'] / info['staking_requirement'] * 100)
-            elif info['registration_height'] + STAKE_BLOCKS - network_info['height'] < 48*30:
-                status_icon = '⏱'
-            else:
-                status_icon = '💚'
+        proof_age = int(time.time() - info['last_uptime_proof'])
+        if proof_age >= PROOF_AGE_WARNING:
+            status_icon = '⚠'
+        elif info['total_contributed'] < info['staking_requirement']:
+            status_icon = moon_symbol(info['total_contributed'] / info['staking_requirement'] * 100)
+        elif info['registration_height'] + STAKE_BLOCKS - ninfo['height'] < 48*30:
+            status_icon = '⏱'
+        else:
+            status_icon = '💚'
+    return status_icon
+
+
+@run_async
+def service_nodes_menu(update: Update, context: CallbackContext, reply_text=''):
+    sns = sn_states
+    buttons = []
+    cur = pgsql.cursor(cursor_factory=psycopg2.extras.DictCursor)
+    uid = get_uid(update, context)
+    cur.execute("SELECT * FROM service_nodes WHERE uid = %s ORDER BY alias, pubkey", (uid,))
+    for sn in cur:
+        status_icon = sn_status_icon(sn['pubkey'])
         shortpub = sn['pubkey'][0:5] + '…' + sn['pubkey'][-2:]
         snbutton = InlineKeyboardButton(
-                status_icon + ' ' + ('{} ({})'.format(sn['alias'], shortpub) if 'alias' in sn else shortpub),
-                callback_data='sn:{}'.format(i))
-        if i % 2 == 0:
-            sns.append([snbutton])
+                status_icon + ' ' + ('{} ({})'.format(sn['alias'], shortpub) if sn['alias'] else shortpub),
+                callback_data='sn:{}'.format(sn['id']))
+        if buttons and len(buttons[-1]) == 1:
+            buttons[-1].append(snbutton)
         else:
-            sns[-1].append(snbutton)
+            buttons.append([snbutton])
 
-
-    sns.append([InlineKeyboardButton('Add a service node', callback_data='add_sn'),
+    buttons.append([InlineKeyboardButton('Add a service node', callback_data='add_sn'),
         InlineKeyboardButton('Show expirations', callback_data='sns_expiries')]);
-    sns.append([
+    buttons.append([
         InlineKeyboardButton('<< Main menu', callback_data='main')])
 
-    sn_menu = InlineKeyboardMarkup(sns)
+    sn_menu = InlineKeyboardMarkup(buttons)
     if reply_text:
         reply_text += '\n\n'
     reply_text += 'View an existing service node, or add a new one?'
 
-    send_reply(bot, update, reply_text, reply_markup=sn_menu)
+    send_reply(update, context, reply_text, reply_markup=sn_menu)
 
 
-def service_nodes_expiries(bot, update, user_data):
-    global sn_states, network_info
-    sns = []
-    for i in range(len(user_data['sn'])):
-        sn = user_data['sn'][i]
+@run_async
+def service_nodes_expiries(update: Update, context: CallbackContext):
+    sns, ninfo = sn_states, network_info
+    mysns = []
+    cur = pgsql.cursor(cursor_factory=psycopg2.extras.DictCursor)
+    uid = get_uid(update, context)
+    cur.execute("SELECT * FROM service_nodes WHERE uid = %s ORDER BY alias, pubkey", (uid,))
+    for sn in cur:
+        pubkey = sn['pubkey']
         row = { 'sn': sn }
-        row['icon'] = '🛑'
-        if sn['pubkey'] in sn_states:
-            info = sn_states[sn['pubkey']]
+        row['icon'] = sn_status_icon(pubkey)
+        if pubkey in sns:
+            row['info'] = sns[pubkey]
 
-            proof_age = int(time.time() - info['last_uptime_proof'])
-            if proof_age >= PROOF_AGE_WARNING:
-                row['icon'] = '⚠'
-            elif info['total_contributed'] < info['staking_requirement']:
-                row['icon'] = moon_symbol(info['total_contributed'] / info['staking_requirement'] * 100)
-            elif info['registration_height'] + STAKE_BLOCKS - network_info['height'] < 48*30:
-                row['icon'] = '⏱'
-            else:
-                row['icon'] = '💚'
-            row['info'] = info
+        mysns.append(row)
 
-        sns.append(row)
-
-    sns.sort(key=lambda s: s['info']['registration_height'] if 'info' in s else 0)
+    mysns.sort(key=lambda s: s['info']['registration_height'] if 'info' in s else 0)
 
     msg = '*Service nodes expirations:*\n'
-    for sn in sns:
+    for sn in mysns:
         msg += '{} {}: '.format(sn['icon'], alias(sn['sn']))
         if 'info' in sn:
             expiry_block = sn['info']['registration_height'] + STAKE_BLOCKS
             msg += 'Block _{}_ (_{}_)\n'.format(
-                    expiry_block, friendly_time(120 * (expiry_block + 1 - network_info['height'])))
+                    expiry_block, friendly_time(120 * (expiry_block + 1 - ninfo['height'])))
         else:
             msg += 'Expired/deregistered\n'
 
-    service_nodes_menu(bot, update, user_data, reply_text=msg)
+    service_nodes_menu(update, context, reply_text=msg)
 
 
-def service_node_add(bot, update, user_data):
-    send_reply(bot, update, 'Okay, send me the public key of the service node to add', None)
+@run_async
+def service_node_add(update: Update, context: CallbackContext):
+    send_reply(update, context, 'Okay, send me the public key of the service node to add', None)
 
 
-def service_node_menu(bot, update, user_data):
-    i = int(update.callback_query.data.split(':', 1)[1])
-    return service_node(bot, update, user_data, i)
+@run_async
+def service_node_menu(update: Update, context: CallbackContext, ):
+    snid = int(update.callback_query.data.split(':', 1)[1])
+    return service_node(update, context, snid)
 
 
-def service_node_menu_inplace(bot, update, user_data):
-    i = int(update.callback_query.data.split(':', 1)[1])
-    return service_node(bot, update, user_data, i,
-            callback=lambda msg, reply_markup: bot.edit_message_text(
+@run_async
+def service_node_menu_inplace(update: Update, context: CallbackContext):
+    snid = int(update.callback_query.data.split(':', 1)[1])
+    return service_node(update, context, snid,
+            callback=lambda msg, reply_markup: context.bot.edit_message_text(
                 text=msg, parse_mode=ParseMode.MARKDOWN,
                 reply_markup=reply_markup, chat_id=update.callback_query.message.chat_id,
                 message_id=update.callback_query.message.message_id))
 
 
-def service_node_input(bot, update, user_data):
+@run_async
+def service_node_input(update: Update, context: CallbackContext):
 
+    uid = get_uid(update, context)
+
+    user_data = context.user_data
     if 'want_note' in user_data:
-        i = user_data['want_note']
-        sn = user_data['sn'][i]
-        sn['note'] = update.message.text
+        snid = user_data['want_note']
         del user_data['want_note']
-        pp.flush()
-        return service_node(bot, update, user_data, i, 'Updated note for _{}_.  Current status:'.format(alias(sn)))
+        pgsql.cursor().execute("UPDATE service_nodes SET note = %s WHERE id = %s AND uid = %s",
+                (update.message.text, snid, uid))
+        return service_node(update, context, snid, 'Updated note for _{alias}_.  Current status:')
 
     elif 'want_alias' in user_data:
-        i = user_data['want_alias']
-        sn = user_data['sn'][i]
-        sn['alias'] = update.message.text.replace("*", "").replace("_", "").replace("[", "").replace("`", "")
+        snid = user_data['want_alias']
+        alias = update.message.text.replace("*", "").replace("_", "").replace("[", "").replace("`", "")
         del user_data['want_alias']
-        pp.flush()
-        return service_node(bot, update, user_data, i, 'Okay, I\'ll now refer to service node _{}_ as _{}_.  Current status:'.format(
-            sn['pubkey'], sn['alias']))
+        cur = pgsql.cursor()
+        cur.execute("UPDATE service_nodes SET alias = %s WHERE id = %s AND uid = %s RETURNING pubkey",
+                (alias, snid, uid))
+        return service_node(update, context, snid, 'Okay, I\'ll now refer to service node _{sn[pubkey]}_ as _{sn[alias]}_.  Current status:')
 
     elif 'want_wallet' in user_data:
         wallet = update.message.text
         if not re.match('^L[4-9A-E][1-9A-HJ-NP-Za-km-z]{5,93}$', wallet):
-            send_reply(bot, update, 'That doesn\'t look like a valid primary wallet address.  Send me at least the first 7 characters of your primary wallet address')
+            send_reply(update, context, 'That doesn\'t look like a valid primary wallet address.  Send me at least the first 7 characters of your primary wallet address')
             return
         del user_data['want_wallet']
-        if not 'wallets' in user_data:
-            user_data['wallets'] = set()
-        user_data['wallets'].add(wallet)
-        pp.flush()
-        return wallets_menu(bot, update, user_data, 'Added wallet _{}_.  I\'ll now calculate your share of shared contribution service node rewards.'.format(wallet))
+        pgsql.cursor().execute("INSERT INTO wallet_prefixes (uid, wallet) VALUES (%s, %s) ON CONFLICT DO NOTHING",
+                (uid, wallet))
+        return wallets_menu(update, context, 'Added wallet _{}_.  I\'ll now calculate your share of shared contribution service node rewards.'.format(wallet))
 
 
     pubkey = update.message.text
 
     if not re.match('^[0-9a-f]{64}$', pubkey):
-        send_reply(bot, update, 'Sorry, I didn\'t understand your message.  Send me a service node public key or use /start')
+        send_reply(update, context, 'Sorry, I didn\'t understand your message.  Send me a service node public key or use /start')
         return
 
-    if 'sn' not in user_data:
-        user_data['sn'] = []
-        pp.flush()
-
-    found, found_at = None, None
-    for i in range(len(user_data['sn'])):
-        if user_data['sn'][i]['pubkey'] == pubkey:
-            found = user_data['sn'][i]
-            found_at = i
+    cur = pgsql.cursor()
+    cur.execute("SELECT id FROM service_nodes WHERE uid = %s AND pubkey = %s",
+            (uid, pubkey))
+    found = cur.fetchone()
 
     if found:
-        reply_text = 'I am _already_ monitoring service node _{}_ for you.  Current status:'.format(pubkey)
+        snid = found[0]
+        reply_text = 'I am _already_ monitoring service node _{sn[pubkey]}_ for you.  Current status:'
 
     else:
-        found_at = len(user_data['sn'])
-        sndata = { 'pubkey': pubkey }
-        if pubkey in sn_states:
-            sndata['lrbh'] = sn_states[pubkey]['last_reward_block_height']
-            if sn_states[pubkey]['total_contributed'] >= sn_states[pubkey]['staking_requirement']:
-                sndata['complete'] = True
-            reply_text = 'Okay, I\'m now monitoring service node _{}_ for you.  Current status:'.format(pubkey)
+        active, complete, lrbh = False, False, None
+        sns = sn_states
+        if pubkey in sns:
+            active = True
+            complete = sns[pubkey]['total_contributed'] >= sns[pubkey]['staking_requirement']
+            lrbh = sns[pubkey]['last_reward_block_height']
+            reply_text = 'Okay, I\'m now monitoring service node _{sn[pubkey]}_ for you.  Current status:'
         else:
-            reply_text = 'Service node _{}_ isn\'t currently registered on the network, but I\'ll start monitoring it for you once it appears.'.format(pubkey)
+            reply_text = 'Service node _{sn[pubkey]}_ isn\'t currently registered on the network, but I\'ll start monitoring it for you once it appears.'.format(pubkey)
+        cur.execute("INSERT INTO service_nodes (uid, pubkey, active, complete, last_reward_block_height) VALUES (%s, %s, %s, %s, %s) RETURNING id",
+                (uid, pubkey, active, complete, lrbh))
+        snid = cur.fetchone()[0]
 
-        user_data['sn'].append(sndata)
-        pp.flush()
-        found = user_data['sn'][found_at]
-
-    return service_node(bot, update, user_data, found_at, reply_text)
+    return service_node(update, context, snid, reply_text)
 
 
-def service_node(bot, update, user_data, i, reply_text = '', callback = None):
-    sn = user_data['sn'][i]
-    pubkey = sn['pubkey']
+def service_node(update: Update, context: CallbackContext, snid, reply_text = '', callback = None):
+    uid = get_uid(update, context)
+    cur = pgsql.cursor(cursor_factory=psycopg2.extras.DictCursor)
+    cur.execute("SELECT * FROM service_nodes WHERE id = %s AND uid = %s", (snid, uid))
+    sn = cur.fetchone()
+    reply_text = reply_text.format(sn=sn, alias=alias(sn))
     if reply_text:
         reply_text += '\n\n'
     else:
         reply_text = 'Current status of service node _{}_:\n\n'.format(alias(sn))
 
-    reward_notify = 'rewards' in sn and sn['rewards']
-    expiry_notifications = 'expires_soon' in sn and sn['expires_soon']
-    note = sn['note'] if 'note' in sn else None
-    if note:
-        reply_text += 'Note: ' + escape_markdown(note) + '\n'
+    if sn['note']:
+        reply_text += 'Note: ' + escape_markdown(sn['note']) + '\n'
 
-    if pubkey not in sn_states:
-        if 'alias' in sn:
+    pubkey = sn['pubkey']
+    sns, ninfo = sn_states, network_info
+    if pubkey not in sns:
+        if sn['alias']:
             reply_text += 'Service node _{}_ is not registered\n'.format(pubkey)
         else:
             reply_text += 'Not registered\n'
     else:
-        info = sn_states[pubkey]
-        height = network_info['height']
+        info = sns[pubkey]
+        height = ninfo['height']
 
         reply_text += 'Public key: _{}_\n'.format(pubkey)
 
@@ -395,9 +399,12 @@ def service_node(bot, update, user_data, i, reply_text = '', callback = None):
         reg_expiry = 'Block *{}* (approx. {})\n'.format(expiry_block, friendly_time(120 * (expiry_block + 1 - height)));
 
         my_stakes = []
-        if 'wallets' in user_data and user_data['wallets']:
+        cur2 = pgsql.cursor()
+        cur2.execute("SELECT wallet FROM wallet_prefixes WHERE uid = %s", (uid,))
+        for row in cur2:
+            w = row[0]
             for y in info['contributors']:
-                if any(y['address'].startswith(x) for x in user_data['wallets']):
+                if y['address'].startswith(w):
                     my_stakes.append((y['amount'], y['address']))
         if len(my_stakes) == 1:
             my_stakes = 'My stake: *{:.9f}* (_{:.2f}%_)\n'.format(
@@ -428,125 +435,135 @@ def service_node(bot, update, user_data, i, reply_text = '', callback = None):
                 reply_text += 'Last reward: *never*.\n'
 
             blocks_to_go = 1
-            for sni in list(sn_states.values()):
+            for sni in list(sns.values()):
                 if sni['total_contributed'] >= sni['staking_requirement'] and sni['last_reward_block_height'] < info['last_reward_block_height']:
                     blocks_to_go += 1
             reply_text += 'Next reward in *{}* blocks (approx. {})\n'.format(blocks_to_go, friendly_time(blocks_to_go * 120))
 
-        reply_text += 'Reward notifications: *' + ('en' if reward_notify else 'dis') + 'abled*\n'
-        reply_text += 'Close-to-expiry notifications: *' + ('en' if expiry_notifications else 'dis') + 'abled*\n'
+        reply_text += 'Reward notifications: *' + ('en' if sn['rewards'] else 'dis') + 'abled*\n'
+        reply_text += 'Close-to-expiry notifications: *' + ('en' if sn['expires_soon'] else 'dis') + 'abled*\n'
 
     menu = InlineKeyboardMarkup([
-        [InlineKeyboardButton('Refresh', callback_data='refresh:{}'.format(i)),
+        [InlineKeyboardButton('Refresh', callback_data='refresh:{}'.format(snid)),
          InlineKeyboardButton('View on lokiblocks.com', url='https://lokiblocks.com/service_node/{}'.format(pubkey))],
-        [InlineKeyboardButton('Stop monitoring', callback_data='stop:{}'.format(i))],
-        [InlineKeyboardButton('Update alias', callback_data='alias:{}'.format(i)),
-            InlineKeyboardButton('Remove alias', callback_data='del_alias:{}'.format(i))]
-            if 'alias' in sn else
-        [InlineKeyboardButton('Set alias', callback_data='alias:{}'.format(i))],
-        [InlineKeyboardButton('Change note', callback_data='note:{}'.format(i)),
-         InlineKeyboardButton('Delete note', callback_data='del_note:{}'.format(i))]
-            if note else
-        [InlineKeyboardButton('Add custom note', callback_data='note:{}'.format(i))],
-        [InlineKeyboardButton(('Disable' if reward_notify else 'Enable') + ' reward notifications',
-            callback_data=('dis' if reward_notify else 'en') + 'able_reward:{}'.format(i))],
-        [InlineKeyboardButton(('Disable' if expiry_notifications else 'Enable') + ' close-to-expiry notifications',
-            callback_data=('dis' if expiry_notifications else 'en') + 'able_expires_soon:{}'.format(i))],
+        [InlineKeyboardButton('Stop monitoring', callback_data='stop:{}'.format(snid))],
+        [InlineKeyboardButton('Update alias', callback_data='alias:{}'.format(snid)),
+            InlineKeyboardButton('Remove alias', callback_data='del_alias:{}'.format(snid))]
+            if sn['alias'] else
+        [InlineKeyboardButton('Set alias', callback_data='alias:{}'.format(snid))],
+        [InlineKeyboardButton('Change note', callback_data='note:{}'.format(snid)),
+         InlineKeyboardButton('Delete note', callback_data='del_note:{}'.format(snid))]
+            if sn['note'] else
+        [InlineKeyboardButton('Add custom note', callback_data='note:{}'.format(snid))],
+        [InlineKeyboardButton(('Disable' if sn['rewards'] else 'Enable') + ' reward notifications',
+            callback_data=('dis' if sn['rewards'] else 'en') + 'able_reward:{}'.format(snid))],
+        [InlineKeyboardButton(('Disable' if sn['expires_soon'] else 'Enable') + ' close-to-expiry notifications',
+            callback_data=('dis' if sn['expires_soon'] else 'en') + 'able_expires_soon:{}'.format(snid))],
         [InlineKeyboardButton('< Service nodes', callback_data='sns'), InlineKeyboardButton('<< Main menu', callback_data='main')]
         ])
 
     if not callback:
-        callback = lambda msg, markup: send_reply(bot, update, msg, markup)
+        callback = lambda msg, markup: send_reply(update, context, msg, markup)
     callback(reply_text, menu)
 
 
-def stop_monitoring(bot, update, user_data):
-    i = int(update.callback_query.data.split(':', 1)[1])
-    pubkey = user_data['sn'][i]['pubkey']
-    del user_data['sn'][i]
-    pp.flush()
-    return service_nodes_menu(bot, update, user_data, 'Okay, I\'m not longer monitoring service node _{}_ for you.'.format(pubkey))
+@run_async
+def stop_monitoring(update: Update, context: CallbackContext):
+    uid = get_uid(update, context)
+    snid = int(update.callback_query.data.split(':', 1)[1])
+    cur = pgsql.cursor()
+    cur.execute("DELETE FROM service_nodes WHERE uid = %s AND id = %s RETURNING pubkey", (uid, snid))
+    found = cur.fetchone()
+    msg = ("Okay, I'm not longer monitoring service node _{}_ for you.".format(found[0]) if found else
+            "I couldn't find that service node; please try again")
+    return service_nodes_menu(update, context, msg)
 
 
-def add_note(bot, update, user_data):
-    i = int(update.callback_query.data.split(':', 1)[1])
-    sn = user_data['sn'][i]
-    pubkey = sn['pubkey']
-    user_data['want_note'] = i
-    pp.flush()
-    msg = "Send me a custom note to set for service node _{}_.".format(pubkey)
-    if 'note' in sn and sn['note']:
-        msg += '\n\nThe current note is: ' + escape_markdown(sn['note'])
-    send_reply(bot, update, msg)
+def request_sn_field(update: Update, context: CallbackContext, field, send_fmt, current_fmt):
+    uid = get_uid(update, context)
+    snid = int(update.callback_query.data.split(':', 1)[1])
+    cur = pgsql.cursor()
+    cur.execute("SELECT pubkey, alias, "+field+" FROM service_nodes WHERE uid = %s AND id = %s", (uid, snid))
+    found = cur.fetchone()
+    if found:
+        context.user_data['want_'+field] = snid
+        msg = send_fmt.format(alias({ 'pubkey': found[0], 'alias': found[1] }), pubkey=found[0])
+        if found[2]:
+            msg += '\n\n' + current_fmt.format(found[2], escaped=escape_markdown(found[2]))
+    else:
+        msg = "I couldn't find that service node; please try again"
+    send_reply(update, context, msg)
 
 
-def del_note(bot, update, user_data):
-    i = int(update.callback_query.data.split(':', 1)[1])
-    pubkey = user_data['sn'][i]['pubkey']
-    del user_data['sn'][i]['note']
-    pp.flush()
-    return service_node(bot, update, user_data, i, 'Removed note for service node _{}_.'.format(pubkey))
+def set_sn_field(update: Update, context: CallbackContext, field, value, success):
+    uid = get_uid(update, context)
+    snid = int(update.callback_query.data.split(':', 1)[1])
+    cur = pgsql.cursor()
+    cur.execute("UPDATE service_nodes SET "+field+" = %s WHERE uid = %s AND id = %s RETURNING pubkey, alias", (value, uid, snid))
+    found = cur.fetchone()
+    msg = (success.format(alias({ 'pubkey': found[0], 'alias': found[1] })) if found else
+            "I couldn't find that service node; please try again")
+    service_node(update, context, snid, msg)
 
 
-def add_alias(bot, update, user_data):
-    i = int(update.callback_query.data.split(':', 1)[1])
-    sn = user_data['sn'][i]
-    pubkey = sn['pubkey']
-    user_data['want_alias'] = i
-    pp.flush()
-    msg = "Send me an alias to use for this service node instead of the public key (_{}_).".format(pubkey)
-    if 'alias' in sn and sn['alias']:
-        msg += '\n\nThe current alias is: ' + sn['alias']
-    send_reply(bot, update, msg)
+@run_async
+def ask_note(update: Update, context: CallbackContext):
+    request_sn_field(update, context, 'note',
+            "Send me a custom note to set for service node _{}_.",
+            "The current note is: {escaped}")
 
 
-def del_alias(bot, update, user_data):
-    i = int(update.callback_query.data.split(':', 1)[1])
-    pubkey = user_data['sn'][i]['pubkey']
-    del user_data['sn'][i]['alias']
-    pp.flush()
-    return service_node(bot, update, user_data, i, 'Removed alias for service node _{}_.'.format(pubkey))
+@run_async
+def del_note(update: Update, context: CallbackContext):
+    set_sn_field(update, context, 'note', None, 'Removed note for service node _{}_.')
 
 
-def disable_reward_notify(bot, update, user_data):
-    i = int(update.callback_query.data.split(':', 1)[1])
-    pubkey = user_data['sn'][i]['pubkey']
-    user_data['sn'][i]['rewards'] = False
-    pp.flush()
-    return service_node(bot, update, user_data, i, 'Okay, I\'ll no longer send you block reward notifications for _{}_.'.format(pubkey))
+@run_async
+def ask_alias(update: Update, context: CallbackContext):
+    request_sn_field(update, context, 'alias',
+            "Send me an alias to use for this service node instead of the public key (_{pubkey}_).",
+            "The current alias is: {}")
 
 
-def enable_reward_notify(bot, update, user_data):
-    i = int(update.callback_query.data.split(':', 1)[1])
-    pubkey = user_data['sn'][i]['pubkey']
-    user_data['sn'][i]['rewards'] = True
-    pp.flush()
-    return service_node(bot, update, user_data, i, 'Okay, I\'ll start sending you block reward notifications for _{}_.'.format(pubkey))
+@run_async
+def del_alias(update: Update, context: CallbackContext):
+    set_sn_field(update, context, 'alias', None, 'Removed alias for service node _{}_.')
 
 
-def enable_expires_soon(bot, update, user_data):
-    i = int(update.callback_query.data.split(':', 1)[1])
-    pubkey = user_data['sn'][i]['pubkey']
-    user_data['sn'][i]['expires_soon'] = True
-    pp.flush()
-    return service_node(bot, update, user_data, i, 'Okay, I\'ll send you expiry notifications when _{}_ is close to expiry (48h, 24h, and 6h).'.format(pubkey))
+@run_async
+def enable_reward_notify(update: Update, context: CallbackContext, ):
+    set_sn_field(update, context, 'rewards', True,
+            "Okay, I'll start sending you block reward notifications for _{}_.")
 
 
-def disable_expires_soon(bot, update, user_data):
-    i = int(update.callback_query.data.split(':', 1)[1])
-    pubkey = user_data['sn'][i]['pubkey']
-    user_data['sn'][i]['expires_soon'] = False
-    pp.flush()
-    return service_node(bot, update, user_data, i, 'Okay, I\'ll stop sending you notifications when _{}_ is close to expiry.'.format(pubkey))
+@run_async
+def disable_reward_notify(update: Update, context: CallbackContext):
+    set_sn_field(update, context, 'rewards', False,
+            "Okay, I'll no longer send you block reward notifications for _{}_.")
 
 
-def wallets_menu(bot, update, user_data, reply_text=''):
+@run_async
+def enable_expires_soon(update: Update, context: CallbackContext):
+    set_sn_field(update, context, 'expires_soon', True,
+            "Okay, I'll send you expiry notifications when _{}_ is close to expiry (48h, 24h, and 6h).")
+
+
+@run_async
+def disable_expires_soon(update: Update, context: CallbackContext):
+    set_sn_field(update, context, 'expires_soon', False,
+            "Okay, I'll stop sending you notifications when _{}_ is close to expiry.")
+
+
+@run_async
+def wallets_menu(update: Update, context: CallbackContext, reply_text=''):
+    uid = get_uid(update, context)
+
     wallets = []
 
-    if 'wallets' not in user_data:
-        user_data['wallets'] = set()
-
-    for w in sorted(user_data['wallets']):
+    cur = pgsql.cursor()
+    cur.execute("SELECT wallet from wallet_prefixes WHERE uid = %s ORDER BY wallet", (uid,))
+    for row in cur:
+        w = row[0]
         # button data can only be 64 bytes long, so truncate if longer
         tag = 'forget_wallet:{}'.format(w)
         if len(tag) > 64:
@@ -555,61 +572,64 @@ def wallets_menu(bot, update, user_data, reply_text=''):
             'Forget {}'.format(w),
             callback_data=tag)])
 
-    wallets.append([InlineKeyboardButton('Add a wallet', callback_data='add_wallet'),
+    wallets.append([InlineKeyboardButton('Add a wallet', callback_data='ask_wallet'),
         InlineKeyboardButton('<< Main menu', callback_data='main')])
 
     w_menu = InlineKeyboardMarkup(wallets)
     if reply_text:
         reply_text += '\n\n'
-    reply_text += 'If you send your wallet address(s) I can calculate your earned reward when your shared contribution service node earns a reward.'
+    reply_text += 'If you send your wallet address(es) I can calculate your specific reward and show you your stake (for shared contribution service nodes).'
 
-    send_reply(bot, update, reply_text, reply_markup=w_menu)
+    send_reply(update, context, reply_text, reply_markup=w_menu)
 
 
-def forget_wallet(bot, update, user_data):
+@run_async
+def forget_wallet(update: Update, context: CallbackContext, ):
     w = update.callback_query.data.split(':', 1)[1]
-    if 'wallets' not in user_data:
-        user_data['wallets'] = set()
 
+    uid = get_uid(update, context)
     msgs = []
     remove = []
-    for x in user_data['wallets']:
-        if x.startswith(w):
+    cur = pgsql.cursor()
+    cur.execute("SELECT wallet from wallet_prefixes WHERE uid = %s ORDER BY wallet", (uid,))
+    for row in cur:
+        if row[0].startswith(w):
             remove.append(x)
-    for x in remove:
-        user_data['wallets'].remove(x)
+    cur.execute("DELETE FROM wallet_prefixes WHERE uid = %s AND wallet IN %s RETURNING wallet",
+            (uid, tuple(remove)))
+    for x in cur:
         msgs.append('Okay, I forgot about wallet _{}_.'.format(x))
 
-    if msgs:
-        pp.flush()
-    else:
+    if not msgs:
         msgs.append('I didn\'t know about that wallet in the first place!')
 
-    return wallets_menu(bot, update, user_data, '\n'.join(msgs))
+    return wallets_menu(update, context, '\n'.join(msgs))
 
 
-def add_wallet(bot, update, user_data):
-    user_data['want_wallet'] = True
-    pp.flush()
-    msg = 'To register a wallet, just tell me the address.  You can either send the whole address or, if you prefer, just the first 7 or more characters of the wallet address.'
-    send_reply(bot, update, msg)
+@run_async
+def ask_wallet(update: Update, context: CallbackContext):
+    context.user_data['want_wallet'] = True
+    msg = 'To register a wallet, just tell me the address.  You can either send the whole address or, if you prefer, just the first 7 (or more) characters of the wallet address.'
+    send_reply(update, context, msg)
 
 
-def error(bot, update, error):
+def error(update: Update, context: CallbackContext):
     """Log Errors caused by Updates."""
-    logger.warning('Update "%s" caused error "%s"', update, error)
+    logger.warning('Update "%s" caused error "%s"', update, context.error)
 
 
-def help(bot, update, user_data):
-    send_reply(bot, update, "Use /start to control this bot.")
+@run_async
+def help(update: Update, context: CallbackContext):
+    send_reply(update, context, "Use /start to control this bot.")
 
 
-def dispatch_query(bot, update, user_data):
+@run_async
+def dispatch_query(update: Update, context: CallbackContext):
     q = update.callback_query.data
     edit = True
     call = None
     if q == 'main':
-        call = intro
+        call = start
     elif q == 'sns':
         call = service_nodes_menu
     elif q == 'sns_expiries':
@@ -627,11 +647,11 @@ def dispatch_query(bot, update, user_data):
     elif re.match(r'stop:\d+', q):
         call = stop_monitoring
     elif re.match(r'alias:\d+', q):
-        call = add_alias
+        call = ask_alias
     elif re.match(r'del_alias:\d+', q):
         call = del_alias
     elif re.match(r'note:\d+', q):
-        call = add_note
+        call = ask_note
     elif re.match(r'del_note:\d+', q):
         call = del_note
     elif re.match(r'enable_reward:\d+', q):
@@ -646,15 +666,25 @@ def dispatch_query(bot, update, user_data):
         call = wallets_menu
     elif re.match(r'forget_wallet:\w+', q):
         call = forget_wallet
-    elif q == 'add_wallet':
-        call = add_wallet
+    elif q == 'ask_wallet':
+        call = ask_wallet
 
     if edit:
-        bot.edit_message_reply_markup(reply_markup=None,
+        context.bot.edit_message_reply_markup(reply_markup=None,
                 chat_id=update.callback_query.message.chat_id,
                 message_id=update.callback_query.message.message_id)
     if call:
-        return call(bot, update, user_data)
+        return call(update, context)
+
+
+def update_sn_fields(uid, snid, **kwargs):
+    cur = pgsql.cursor()
+    sets, vals = [], []
+    for k, v in kwargs.items():
+        sets.append(k + ' = %s')
+        vals.append(v)
+    vals += (snid, uid)
+    cur.execute("UPDATE service_nodes SET " + ", ".join(sets) + " WHERE id = %s AND uid = %s", tuple(vals))
 
 
 time_to_die = False
@@ -676,137 +706,132 @@ def loki_updater():
             print("An exception occured during loki stats fetching: {}".format(e))
             continue
         last = now
-        network_info = status
-        sn_states = { x['service_node_pubkey']: x for x in sns }
-        for x in sns:
-            expected_dereg_height[x['service_node_pubkey']] = x['registration_height'] + STAKE_BLOCKS
+        sns = { x['service_node_pubkey']: x for x in sns }
+        sn_states, network_info = sns, status
+        for pubkey, x in sns.items():
+            expected_dereg_height[pubkey] = x['registration_height'] + STAKE_BLOCKS
 
-        if pp:
-            try:
-                data = pp.get_user_data()
-                save = False
-                for chatid, user_data in data.items():
-                    if 'sn' not in user_data:
-                        continue
-                    my_addrs = set()
-                    if 'wallets' in user_data and user_data['wallets']:
-                        my_addrs = user_data['wallets']
-                    for i in range(len(user_data['sn'])):
-                        sn = user_data['sn'][i]
-                        pubkey = sn['pubkey']
-                        name = alias(sn)
-                        sn_details_buttons = InlineKeyboardMarkup([[
-                            InlineKeyboardButton('SN details', callback_data='sn:{}'.format(i)),
-                            InlineKeyboardButton('lokiblocks.com', url='https://lokiblocks.com/service_node/{}'.format(pubkey))]])
-                        if pubkey not in sn_states:
-                            if 'notified_dereg' not in sn:
-                                dereg_msg = ('📅 Service node _{}_ reached the end of its registration period and is no longer registered on the network.'.format(name)
-                                        if pubkey in expected_dereg_height and expected_dereg_height[pubkey] <= network_info['height'] else
-                                        '🛑 *UNEXPECTED DEREGISTRATION!* Service node _{}_ is no longer registered on the network! 😦'.format(name))
-                                if send_message_or_shutup(updater.bot, chatid, dereg_msg, reply_markup=sn_details_buttons):
-                                    sn['notified_dereg'] = True
-                                    if 'complete' in sn:
-                                        del sn['complete']
-                                    sn['last_contributions'] = 0
-                                    if 'expiry_notified' in sn:
-                                        del sn['expiry_notified']
-                                    save = True
-                            continue
-                        elif 'notified_dereg' in sn:
-                            del sn['notified_dereg']
-                            save = True
+        if not hasattr(updater, 'bot'):
+            print("no bot!")
+            continue
+        try:
+            cur = pgsql.cursor(cursor_factory=psycopg2.extras.DictCursor)
+            wallets = {}
+            cur.execute("SELECT uid, wallet FROM wallet_prefixes")
+            for row in cur:
+                if row[0] not in wallets:
+                    wallets[row[0]] = []
+                wallets[row[0]].append(row[1])
 
-                        info = sn_states[pubkey]
+            inactive = []
+            cur.execute("SELECT users.telegram_id, users.discord_id, service_nodes.* FROM users JOIN service_nodes ON uid = users.id ORDER BY uid")
+            for sn in cur:
+                if not sn['telegram_id']:
+                    continue  # FIXME
+                uid = sn['uid']
+                chatid = sn['telegram_id']
+                snid = sn['id']
+                pubkey = sn['pubkey']
+                name = alias(sn)
+                sn_details_buttons = InlineKeyboardMarkup([[
+                    InlineKeyboardButton('SN details', callback_data='sn:{}'.format(snid)),
+                    InlineKeyboardButton('lokiblocks.com', url='https://lokiblocks.com/service_node/{}'.format(pubkey))]])
+                if pubkey not in sns:
+                    if not sn['notified_dereg']:
+                        dereg_msg = ('📅 Service node _{}_ reached the end of its registration period and is no longer registered on the network.'.format(name)
+                                if pubkey in expected_dereg_height and expected_dereg_height[pubkey] <= status['height'] else
+                                '🛑 *UNEXPECTED DEREGISTRATION!* Service node _{}_ is no longer registered on the network! 😦'.format(name))
+                        if send_message_or_shutup(updater.bot, chatid, dereg_msg, reply_markup=sn_details_buttons):
+                            update_sn_fields(uid, snid, active=False, notified_dereg=True, complete=False, last_contributions=0, expiry_notified=None)
+                    elif sn['active']:
+                        update_sn_fields(uid, snid, active=False)
 
-                        if info['last_uptime_proof']:
-                            proof_age = int(time.time() - info['last_uptime_proof'])
-                            if proof_age >= PROOF_AGE_WARNING:
-                                if 'notified_age' not in sn or proof_age - sn['notified_age'] > PROOF_AGE_REPEAT:
-                                    if send_message_or_shutup(updater.bot, chatid,
-                                            '⚠ *WARNING:* Service node _{}_ last uptime proof is *{}*'.format(name, uptime(info['last_uptime_proof'])),
-                                            reply_markup=sn_details_buttons):
-                                        sn['notified_age'] = proof_age
-                                        save = True
-                            elif 'notified_age' in sn:
-                                if send_message_or_shutup(updater.bot, chatid,
-                                        '😌 Service node _{}_ last uptime proof received (now *{}*)'.format(name, uptime(info['last_uptime_proof'])),
-                                        reply_markup=sn_details_buttons):
-                                    del sn['notified_age']
-                                    save = True
+                    continue
+                elif sn['notified_dereg'] or not sn['active']:
+                    update_sn_fields(uid, snid, active=True, notified_dereg=False)
 
-                        just_completed = False
-                        if 'complete' not in sn:
-                            if 'last_contributions' not in sn or sn['last_contributions'] < info['total_contributed']:
-                                pct = info['total_contributed'] / info['staking_requirement'] * 100
-                                msg_part_a = ('{} Service node _{}_ is awaiting contributions.' if 'last_contributions' not in sn else
-                                        '{} Service node _{}_ received a contribution.').format(moon_symbol(pct), name)
+                info = sns[pubkey]
 
-                                if send_message_or_shutup(updater.bot, chatid,
-                                        msg_part_a + '  Total contributions: _{:.9f}_ (_{:.1f}%_ of required _{:.9f}_).  Additional contribution required: _{:.9f}_.'.format(
-                                            info['total_contributed']*1e-9, pct, info['staking_requirement']*1e-9, (info['staking_requirement'] - info['total_contributed'])*1e-9),
-                                        reply_markup=sn_details_buttons):
-                                    sn['last_contributions'] = info['total_contributed']
-                                    save = True
+                if info['last_uptime_proof']:
+                    proof_age = int(time.time() - info['last_uptime_proof'])
+                    if proof_age >= PROOF_AGE_WARNING:
+                        if not sn['notified_age'] or proof_age - sn['notified_age'] > PROOF_AGE_REPEAT:
+                            if send_message_or_shutup(updater.bot, chatid,
+                                    '⚠ *WARNING:* Service node _{}_ last uptime proof is *{}*'.format(name, uptime(info['last_uptime_proof'])),
+                                    reply_markup=sn_details_buttons):
+                                update_sn_fields(uid, snid, notified_age=proof_age)
+                    elif sn['notified_age']:
+                        if send_message_or_shutup(updater.bot, chatid,
+                                '😌 Service node _{}_ last uptime proof received (now *{}*)'.format(name, uptime(info['last_uptime_proof'])),
+                                reply_markup=sn_details_buttons):
+                            update_sn_fields(uid, snid, notified_age=None)
 
-                            if info['total_contributed'] >= info['staking_requirement']:
-                                if send_message_or_shutup(updater.bot, chatid,
-                                        '💚 Service node _{}_ is now fully staked and active!'.format(name),
-                                        reply_markup=sn_details_buttons):
-                                    sn['complete'] = True
-                                    save = True
-                                just_completed = True
+                just_completed = False
+                if not sn['complete']:
+                    if not sn['last_contributions'] or sn['last_contributions'] < info['total_contributed']:
+                        pct = info['total_contributed'] / info['staking_requirement'] * 100
+                        msg_part_a = ('{} Service node _{}_ is awaiting contributions.' if not sn['last_contributions'] else
+                                '{} Service node _{}_ received a contribution.').format(moon_symbol(pct), name)
 
+                        if send_message_or_shutup(updater.bot, chatid,
+                                msg_part_a + '  Total contributions: _{:.9f}_ (_{:.1f}%_ of required _{:.9f}_).  Additional contribution required: _{:.9f}_.'.format(
+                                    info['total_contributed']*1e-9, pct, info['staking_requirement']*1e-9, (info['staking_requirement'] - info['total_contributed'])*1e-9),
+                                reply_markup=sn_details_buttons):
+                            update_sn_fields(uid, snid, last_contributions=info['total_contributed'])
 
-
-                        if 'expires_soon' in sn:
-                            expires_at = info['registration_height'] + STAKE_BLOCKS
-                            expires_in = expires_at - network_info['height']
-                            expires_hours = expires_in / 30
-                            notify_time = 6 if expires_hours <= 6 else 24 if expires_hours <= 24 else 48 if expires_hours <= 48 else None
-                            if notify_time and expires_hours <= notify_time and ('expiry_notified' not in sn or sn['expiry_notified'] > notify_time):
-                                expires_hours = round(expires_hours)
-                                if send_message_or_shutup(updater.bot, chatid,
-                                        '⏱ Service node _{}_ registration expires in about {:.0f} hour{} (block _{}_)'.format(
-                                            name, expires_hours, '' if expires_hours == 1 else 's', expires_at),
-                                        reply_markup=sn_details_buttons):
-                                    sn['expiry_notified'] = notify_time
-                                    save = True
-                            elif notify_time is None and 'expiry_notified' in sn:
-                                del sn['expiry_notified']
-                                save = True
-
-                        lrbh = info['last_reward_block_height']
-                        if 'lrbh' not in sn:
-                            sn['lrbh'] = lrbh
-                            save = True
-                        elif 'lrbh' in sn and lrbh > sn['lrbh']:
-                            if 'rewards' in sn and sn['rewards'] and not just_completed and info['total_contributed'] >= info['staking_requirement']:
-                                reward = 14 + 50 * 2**(-lrbh/64800)
-                                my_rewards = []
-                                if my_addrs and len(info['contributors']) > 1:
-                                    for y in info['contributors']:
-                                        if any(y['address'].startswith(x) for x in my_addrs):
-                                            operator_reward = reward * info['portions_for_operator'] / 18446744073709551612.
-                                            mine = (reward - operator_reward) * y['amount'] / info['staking_requirement']
-                                            if y['address'] == info['operator_address']:
-                                                mine += operator_reward
-                                            my_rewards.append('*{:.3f} LOKI* (_{}...{}_)'.format(mine, y['address'][0:7], y['address'][-3:]))
-
-                                if send_message_or_shutup(updater.bot, chatid,
-                                        '💰 Service node _{}_ earned a reward of *{:.3f} LOKI* at height *{}*.'.format(name, reward, lrbh) + (
-                                            '  Your share: ' + ', '.join(my_rewards) if my_rewards else '')):
-                                    sn['lrbh'] = lrbh
-                                    save = True
-                            else:
-                                sn['lrbh'] = lrbh
-                                save = True
+                    if info['total_contributed'] >= info['staking_requirement']:
+                        if send_message_or_shutup(updater.bot, chatid,
+                                '💚 Service node _{}_ is now fully staked and active!'.format(name),
+                                reply_markup=sn_details_buttons):
+                            update_sn_fields(uid, snid, complete=True)
+                        just_completed = True
 
 
-                if save:
-                    pp.flush()
-            except Exception as e:
-                print("An exception occured during updating/notifications: {}".format(e))
-                continue
+
+                if sn['expires_soon']:
+                    expires_at = info['registration_height'] + STAKE_BLOCKS
+                    expires_in = expires_at - status['height']
+                    expires_hours = expires_in / 30
+                    notify_time = 6 if expires_hours <= 6 else 24 if expires_hours <= 24 else 48 if expires_hours <= 48 else None
+                    if notify_time and expires_hours <= notify_time and (not sn['expiry_notified'] or sn['expiry_notified'] > notify_time):
+                        expires_hours = round(expires_hours)
+                        if send_message_or_shutup(updater.bot, chatid,
+                                '⏱ Service node _{}_ registration expires in about {:.0f} hour{} (block _{}_)'.format(
+                                    name, expires_hours, '' if expires_hours == 1 else 's', expires_at),
+                                reply_markup=sn_details_buttons):
+                            update_sn_fields(uid, snid, expiry_notified=notify_time)
+                    elif notify_time is None and sn['expiry_notified']:
+                        update_sn_fields(uid, snid, expiry_notified=None)
+
+                lrbh = info['last_reward_block_height']
+                if not sn['last_reward_block_height']:
+                    update_sn_fields(uid, snid, last_reward_block_height=lrbh)
+                elif sn['last_reward_block_height'] and lrbh > sn['last_reward_block_height']:
+                    if sn['rewards'] and not just_completed and info['total_contributed'] >= info['staking_requirement']:
+                        reward = 14 + 50 * 2**(-lrbh/64800)
+                        my_rewards = []
+                        if sn['uid'] in wallets and len(info['contributors']) > 1:
+                            for y in info['contributors']:
+                                if any(y['address'].startswith(x) for x in wallets[sn['uid']]):
+                                    operator_reward = reward * info['portions_for_operator'] / 18446744073709551612.
+                                    mine = (reward - operator_reward) * y['amount'] / info['staking_requirement']
+                                    if y['address'] == info['operator_address']:
+                                        mine += operator_reward
+                                    my_rewards.append('*{:.3f} LOKI* (_{}...{}_)'.format(mine, y['address'][0:7], y['address'][-3:]))
+
+                        if send_message_or_shutup(updater.bot, chatid,
+                                '💰 Service node _{}_ earned a reward of *{:.3f} LOKI* at height *{}*.'.format(name, reward, lrbh) + (
+                                    '  Your share: ' + ', '.join(my_rewards) if my_rewards else '')):
+                            update_sn_fields(uid, snid, last_reward_block_height=lrbh)
+                    else:
+                        update_sn_fields(uid, snid, last_reward_block_height=lrbh)
+
+
+        except Exception as e:
+            print("An exception occured during updating/notifications: {}".format(e))
+            import sys
+            traceback.print_exc(file=sys.stdout)
+            continue
 
 
 loki_thread = None
@@ -828,14 +853,16 @@ def stop_loki_thread(signum, frame):
 
 
 def main():
+    global pgsql, updater
+    pgsql = psycopg2.connect(**PGSQL_CONNECT)
+    pgsql.autocommit = True
+
     start_loki_update_thread()
 
     print("Starting bot")
+
     # Create the Updater and pass it your bot's token.
-    global pp, updater
-    pp = PicklePersistence(filename=PERSISTENCE_FILENAME, store_user_data=True, store_chat_data=False, on_flush=True)
-    updater = Updater(TELEGRAM_TOKEN, persistence=pp,
-            user_sig_handler=stop_loki_thread)
+    updater = Updater(TELEGRAM_TOKEN, workers=4, user_sig_handler=stop_loki_thread, use_context=True)
 
     # Get the dispatcher to register handlers
     dp = updater.dispatcher
