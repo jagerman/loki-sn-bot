@@ -7,12 +7,12 @@ import requests
 import logging
 import traceback
 import psycopg2, psycopg2.extras
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ParseMode, Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ParseMode, Update, ChatAction
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackQueryHandler, CallbackContext
 from telegram.ext.dispatcher import run_async
 from telegram.error import TelegramError
 
-from loki_sn_bot_config import TELEGRAM_TOKEN, PGSQL_CONNECT, NODE_URL, TESTNET_NODE_URL, OWNER, EXTRA
+from loki_sn_bot_config import TELEGRAM_TOKEN, PGSQL_CONNECT, OWNER, EXTRA, NODE_URL, TESTNET_NODE_URL, TESTNET_WALLET_URL, TESTNET_FAUCET_AMOUNT
 
 
 
@@ -40,6 +40,8 @@ TESTNET_STAKE_BLOCKS = 720*2 + 20
 welcome_message = (
         'Hi!  I can give you loki service node information and send you alerts if the uptime proof for your service node(s) gets too long.  ' +
         'I can also optionally let you know when your service nodes earn a payment and when your service node is nearing expiry.' +
+        ('\n\nI am also capable of monitoring testnet service nodes if you send me a pubkey for a service node on the testnet; you can use /testnet to see the current testnet status.' if TESTNET_NODE_URL else '') +
+        ('\n\nI also have a testnet wallet attached: if you need some testnet funds you can send me a message /faucet _YourTestnetWallet_ to have me send some testnet LOKI your way.' if TESTNET_WALLET_URL and TESTNET_FAUCET_AMOUNT else '') +
         ('\n\nThis bot is operated by ' + OWNER if OWNER else '') +
         ('\n\n' + EXTRA if EXTRA else '')
 )
@@ -178,8 +180,8 @@ def start(update: Update, context: CallbackContext):
 
 
 @run_async
-def status(update: Update, context: CallbackContext):
-    sns = sn_states
+def status(update: Update, context: CallbackContext, testnet=False):
+    sns = testnet_sn_states if testnet else sn_states
     active, waiting, old_proof = 0, 0, 0
     now = int(time.time())
     for sn in sns.values():
@@ -190,25 +192,85 @@ def status(update: Update, context: CallbackContext):
         if sn['last_uptime_proof'] and now - sn['last_uptime_proof'] > PROOF_AGE_WARNING:
             old_proof += 1
 
-    h = network_info['height']
-    reply_text = 'Network height: *{}*\n'.format(network_info['height']);
+    h = (testnet_network_info if testnet else network_info)['height']
+    reply_text = '🚧 *Testnet* 🚧\n' if testnet else ''
+    reply_text += 'Network height: *{}*\n'.format(h);
     reply_text += 'Service nodes: *{}* _(active)_ + *{}* _(awaiting contribution)_\n'.format(active, waiting)
     reply_text += '*{}* service node'.format(old_proof) + (' has uptime proof' if old_proof == 1 else 's have uptime proofs') + ' > 1h5m\n';
 
     snbr = 0.5 * (28 + 100 * 2**(-h/64800))
-    reply_text += 'Current SN stake requirement: *{:.2f}* LOKI\n'.format(lsr(h))
+    reply_text += 'Current SN stake requirement: *{:.2f}* LOKI\n'.format(lsr(h, testnet=testnet))
     reply_text += 'Current SN reward: *{:.4f}* LOKI\n'.format(snbr)
 
+    testnet_clause = "testnet" if testnet else "NOT testnet"
     cur = pgsql.cursor()
-    cur.execute("SELECT COUNT(*) FROM (SELECT DISTINCT pubkey FROM service_nodes WHERE active AND NOT testnet) AS sns")
+    cur.execute("SELECT COUNT(*) FROM (SELECT DISTINCT pubkey FROM service_nodes WHERE active AND "+testnet_clause+") AS sns")
     monitored_sns = cur.fetchone()[0]
-    cur.execute("SELECT COUNT(*) FROM (SELECT DISTINCT users.id FROM users JOIN service_nodes ON uid = users.id WHERE active AND NOT testnet) AS usrs")
+    cur.execute("SELECT COUNT(*) FROM (SELECT DISTINCT users.id FROM users JOIN service_nodes ON uid = users.id WHERE active AND "+testnet_clause+") AS usrs")
     active_users = cur.fetchone()[0]
 
-    reply_text += 'I am currently monitoring *{}* active service nodes (*{:.1f}%*) on behalf of *{}* users.'.format(
-            monitored_sns, 100 * monitored_sns / (active + waiting), active_users)
+    reply_text += 'I am currently monitoring *{}* active {}service nodes (*{:.1f}%*) on behalf of *{}* users.'.format(
+            monitored_sns, "*testnet* " if testnet else "", 100 * monitored_sns / (active + waiting), active_users)
 
     return main_menu(update, context, reply_text, last_button=InlineKeyboardButton('<< Main menu', callback_data='main'))
+
+
+def testnet_status(update: Update, context: CallbackContext):
+    return status(update, context, testnet=True)
+
+
+@run_async
+def faucet(update: Update, context: CallbackContext):
+    uid = get_uid(update, context)
+    cur = pgsql.cursor()
+    cur.execute("SELECT faucet_last_used FROM users WHERE id = %s", (uid,))
+    last_used = cur.fetchone()[0]
+
+    now = int(time.time())
+    if last_used and last_used > now - 86400:
+        return send_reply(update, context,
+                "🤔 It appears that you have already used the faucet recently.  You need to wait another {} before you can use it again.".format(
+                    friendly_time(86400 - (now - last_used))))
+
+    args = context.args
+    if args and len(args) == 1:
+        wallet = args[0]
+        if re.match('^L[4-9A-E][1-9A-HJ-NP-Za-km-z]{93}$', wallet):
+            send_reply(update, context, "🤣 Nice try, but I don't have any mainnet LOKI.  Send me a testnet wallet address instead")
+        elif any(re.match(x, wallet) for x in (
+            '^T[6-9A-G][1-9A-HJ-NP-Za-km-z]{95}$', # main addr
+            '^T[GHJ-NP-R][1-9A-HJ-NP-Za-km-z]{106}$', # integrated
+            '^T[R-Zab][1-9A-HJ-NP-Za-km-z]{95}$', # subaddress
+            )):
+            context.bot.send_chat_action(chat_id=update.message.chat_id, action=ChatAction.UPLOAD_DOCUMENT)
+            error = None
+            try:
+                transfer = requests.post(TESTNET_WALLET_URL + "/json_rpc", timeout=5, json={
+                    "jsonrpc": "2.0",
+                    "id": "0",
+                    "method": "transfer",
+                    "params": {
+                        "destinations": [{"amount": TESTNET_FAUCET_AMOUNT, "address": wallet}],
+                        "priority": 1,
+                        }
+                    }).json()
+            except Exception as e:
+                print("testnet wallet error: {}".format(e))
+                return send_reply(update, context, '💩 An error occured while communicating with the testnet wallet; please try again later')
+
+            if 'error' in transfer and transfer['error']:
+                return send_reply(update, context, '☣ *Transfer failed*: {}'.format(transfer['error']['message']))
+
+            tx_hash = transfer['result']['tx_hash']
+            cur.execute("UPDATE users SET faucet_last_used = %s WHERE id = %s", (now, uid))
+            send_reply(update, context, '💸 Sent you {:.9f} testnet LOKI! (tx _{}_)'.format(TESTNET_FAUCET_AMOUNT*1e-9, tx_hash))
+
+        else:
+            send_reply(update, context,
+                    '{} does not look like a valid testnet wallet address!  Please check the address and try again.'.format(wallet))
+    else:
+        send_reply(update, context, "Usage: /faucet TESTNETWALLET — sends some testnet LOKI to the given address."
+                "Note that this faucet can be used just once every 24 hours.")
 
 
 def sn_status_icon(pubkey):
@@ -490,9 +552,10 @@ def service_node(update: Update, context: CallbackContext, snid, reply_text = ''
         reply_text += 'Reward notifications: *' + ('en' if sn['rewards'] else 'dis') + 'abled*\n'
         reply_text += 'Close-to-expiry notifications: *' + ('en' if sn['expires_soon'] else 'dis') + 'abled*\n'
 
+    explorer = 'lokitestnet.com' if sn['testnet'] else 'lokiblocks.com'
     menu = InlineKeyboardMarkup([
         [InlineKeyboardButton('Refresh', callback_data='refresh:{}'.format(snid)),
-         InlineKeyboardButton('View on lokiblocks.com', url='https://lokiblocks.com/service_node/{}'.format(pubkey))],
+         InlineKeyboardButton('View on '+explorer, url='https://{}/service_node/{}'.format(explorer, pubkey))],
         [InlineKeyboardButton('Stop monitoring', callback_data='stop:{}'.format(snid))],
         [InlineKeyboardButton('Update alias', callback_data='alias:{}'.format(snid)),
             InlineKeyboardButton('Remove alias', callback_data='del_alias:{}'.format(snid))]
@@ -799,9 +862,10 @@ def loki_updater():
                 pubkey = sn['pubkey']
                 name = alias(sn)
                 netheight = tstatus['height'] if sn['testnet'] else status['height']
+                explorer = 'lokitestnet.com' if sn['testnet'] else 'lokiblocks.com'
                 sn_details_buttons = InlineKeyboardMarkup([[
                     InlineKeyboardButton('SN details', callback_data='sn:{}'.format(snid)),
-                    InlineKeyboardButton('lokiblocks.com', url='https://lokiblocks.com/service_node/{}'.format(pubkey))]])
+                    InlineKeyboardButton(explorer, url='https://{}/service_node/{}'.format(explorer, pubkey))]])
                 if pubkey not in sns and pubkey not in tsns:
                     if not sn['notified_dereg']:
                         dereg_msg = ('📅 Service node _{}_ reached the end of its registration period and is no longer registered on the network.'.format(name)
@@ -940,6 +1004,10 @@ def main():
 
     updater.dispatcher.add_handler(CommandHandler('start', start, pass_user_data=True))
     updater.dispatcher.add_handler(CommandHandler('help', help, pass_user_data=True))
+    if TESTNET_NODE_URL:
+        updater.dispatcher.add_handler(CommandHandler('testnet', testnet_status, pass_user_data=True))
+    if TESTNET_WALLET_URL and TESTNET_FAUCET_AMOUNT:
+        updater.dispatcher.add_handler(CommandHandler('faucet', faucet, pass_user_data=True, pass_args=True))
     updater.dispatcher.add_handler(CallbackQueryHandler(dispatch_query, pass_user_data=True))
     updater.dispatcher.add_handler(MessageHandler(Filters.text, service_node_input, pass_user_data=True))
 

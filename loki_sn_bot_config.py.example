@@ -20,6 +20,15 @@ NODE_URL = 'http://localhost:22023'
 TESTNET_NODE_URL = None
 #TESTNET_NODE_URL = 'http://localhost:38157'
 
+# If set to a testnet wallet RPC URL for a wallet containing testnet coins the bot can function as a
+# testnet faucet:
+TESTNET_WALLET_URL = None
+#TESTNET_WALLET_URL = 'http://localhost:12345'
+
+# How much to send users who request from the faucet.  Can be requested once/24h.  (Only applies if
+# TESTNET_WALLET_URL is set).  The value is in atomic units.
+TESTNET_FAUCET_AMOUNT = 202000000000
+
 # Telegram handle of the bot's owner.  This gets used in the bot's welcome message.  If set to None
 # or '' it will not be shown.
 OWNER = 'FIXME'
