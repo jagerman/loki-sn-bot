@@ -9,8 +9,8 @@ It is available on Telegram as [@LokiSNBot](https://t.me/LokiSNBot).
 
 - Python 3
 - Python requests module
-- Python [python-telegram-bot](https://github.com/python-telegram-bot/python-telegram-bot) -- you
-  will likely need to install the current master branch until version 12 is released.
+- Python [python-telegram-bot](https://github.com/python-telegram-bot/python-telegram-bot) --
+  requires version 12 (still in beta as of this writing).
 
 ## License
 
