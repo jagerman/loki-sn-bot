@@ -1002,14 +1002,14 @@ def main():
     # Get the dispatcher to register handlers
     dp = updater.dispatcher
 
-    updater.dispatcher.add_handler(CommandHandler('start', start, pass_user_data=True))
-    updater.dispatcher.add_handler(CommandHandler('help', help, pass_user_data=True))
+    updater.dispatcher.add_handler(CommandHandler('start', start))
+    updater.dispatcher.add_handler(CommandHandler('help', help))
     if TESTNET_NODE_URL:
-        updater.dispatcher.add_handler(CommandHandler('testnet', testnet_status, pass_user_data=True))
+        updater.dispatcher.add_handler(CommandHandler('testnet', testnet_status))
     if TESTNET_WALLET_URL and TESTNET_FAUCET_AMOUNT:
-        updater.dispatcher.add_handler(CommandHandler('faucet', faucet, pass_user_data=True, pass_args=True))
-    updater.dispatcher.add_handler(CallbackQueryHandler(dispatch_query, pass_user_data=True))
-    updater.dispatcher.add_handler(MessageHandler(Filters.text, service_node_input, pass_user_data=True))
+        updater.dispatcher.add_handler(CommandHandler('faucet', faucet))
+    updater.dispatcher.add_handler(CallbackQueryHandler(dispatch_query))
+    updater.dispatcher.add_handler(MessageHandler(Filters.text, service_node_input))
 
     # log all errors
     dp.add_error_handler(error)
