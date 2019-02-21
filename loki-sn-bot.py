@@ -462,7 +462,7 @@ def service_node_input(update: Update, context: CallbackContext):
             lrbh = tsns[pubkey]['last_reward_block_height']
             reply_text = 'Okay, I\'m now monitoring *testnet* service node _{sn[pubkey]}_ for you.  Current status:'
         else:
-            reply_text = 'Service node _{sn[pubkey]}_ isn\'t currently registered on the network, but I\'ll start monitoring it for you once it appears.'.format(pubkey)
+            reply_text = 'Service node _{sn[pubkey]}_ isn\'t currently registered on the network, but I\'ll start monitoring it for you once it appears.'
         cur.execute("INSERT INTO service_nodes (uid, pubkey, active, complete, last_reward_block_height, testnet) VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
                 (uid, pubkey, active, complete, lrbh, testnet))
         snid = cur.fetchone()[0]
