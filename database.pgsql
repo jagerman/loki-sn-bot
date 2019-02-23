@@ -39,6 +39,7 @@ CREATE TABLE public.service_nodes (
     rewards boolean DEFAULT false NOT NULL,
     expiry_notified bigint,
     notified_age bigint,
+    testnet boolean DEFAULT false NOT NULL,
     CONSTRAINT valid_sn_pubkey CHECK ((pubkey ~ similar_escape('[0-9a-f]{64}'::text, NULL::text)))
 );
 
@@ -70,6 +71,7 @@ CREATE TABLE public.users (
     id bigint NOT NULL,
     telegram_id bigint,
     discord_id text,
+    faucet_last_used bigint,
     CONSTRAINT one_chat_id_required CHECK (((telegram_id IS NOT NULL) OR (discord_id IS NOT NULL)))
 );
 
@@ -150,10 +152,10 @@ ALTER TABLE ONLY public.wallet_prefixes
 
 
 --
--- Name: service_nodes_active_idx; Type: INDEX; Schema: public; Owner: -
+-- Name: service_nodes_active_testnet_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX service_nodes_active_idx ON public.service_nodes USING btree (active);
+CREATE INDEX service_nodes_active_testnet_idx ON public.service_nodes USING btree (active, testnet);
 
 
 --
