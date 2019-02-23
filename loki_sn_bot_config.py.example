@@ -29,6 +29,11 @@ TESTNET_WALLET_URL = None
 # TESTNET_WALLET_URL is set).  The value is in atomic units.
 TESTNET_FAUCET_AMOUNT = 202000000000
 
+# Thresholds, in hours, at which to notify about an impending expiry.  These must be in increasing
+# order.
+EXPIRY_THRESHOLDS = [6, 24, 48]
+TESTNET_EXPIRY_THRESHOLDS = [0.5, 2]
+
 # Telegram handle of the bot's owner.  This gets used in the bot's welcome message.  If set to None
 # or '' it will not be shown.
 OWNER = 'FIXME'
