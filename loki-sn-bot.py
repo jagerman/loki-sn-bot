@@ -160,16 +160,13 @@ def loki_updater():
 
 
                 if sn['expires_soon']:
-                    expires_at = sn.state('registration_height') + (TESTNET_STAKE_BLOCKS if sn.testnet else STAKE_BLOCKS)
-                    expires_in = expires_at - netheight
-                    expires_hours = expires_in / 30
-                    notify_time = next((t for t in (config.TESTNET_EXPIRY_THRESHOLDS if sn.testnet else config.EXPIRY_THRESHOLDS) if expires_hours <= t), None)
+                    expires_at, expires_in = sn.expiry_block(), sn.expires_in()
+                    notify_time = next((int(t*3600) for t in (config.TESTNET_EXPIRY_THRESHOLDS if sn.testnet else config.EXPIRY_THRESHOLDS) if expires_in <= t*3600), None)
                     if notify_time and (not sn['expiry_notified'] or sn['expiry_notified'] > notify_time):
-                        time 
-                        hformat = '{:.0f}' if expires_hours >= 2 else '{:.1f}'
+                        hformat = '{:.0f}' if expires_in >= 7200 else '{:.1f}'
                         if tg.send_message_or_shutup(tg.updater.bot, chatid,
                                 prefix+('⏱ Service node _{}_ registration expires in about '+hformat+' hour{} (block _{}_)').format(
-                                    name, expires_hours, '' if expires_hours == 1 else 's', expires_at),
+                                    name, expires_in/3600, '' if expires_in == 3600 else 's', expires_at),
                                 reply_markup=sn_details_buttons):
                             sn.update(expiry_notified=notify_time)
                     elif notify_time is None and sn['expiry_notified']:
