@@ -530,7 +530,7 @@ def stop_monitoring(update: Update, context: CallbackContext):
         return service_nodes_menu(update, context, "I couldn't find that service node; please try again")
     sn.delete()
     msg = "Okay, I'm not longer monitoring service node " + (
-            "_{[alias]}_ (_{[pubkey]}_)" if sn['alias'] else "_{[pubkey]}_").format(sn) + " for you."
+            "_{}_ (_{}_)".format(sn['alias'], sn['pubkey']) if sn['alias'] else "_{}_".format(sn['pubkey'])) + " for you."
     return service_nodes_menu(update, context, msg)
 
 
