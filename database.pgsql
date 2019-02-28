@@ -36,7 +36,7 @@ CREATE TABLE public.service_nodes (
     note text,
     notified_dereg boolean DEFAULT false NOT NULL,
     notified_uptime_age integer,
-    rewards boolean DEFAULT false NOT NULL,
+    rewards boolean DEFAULT true NOT NULL,
     expiry_notified bigint,
     notified_age bigint,
     testnet boolean DEFAULT false NOT NULL,

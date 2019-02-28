@@ -22,9 +22,9 @@ class ServiceNode:
     testnet = False
     def __init__(self, data=None, snid=None, pubkey=None, uid=None):
         """
-        Constructs a ServiceNode object.  Can take a data dict (which should contain at least all
-        the fields fetched from a row of the service_nodes table), or a (pubkey or snid) + uid pair
-        to do the query during construction.
+        Constructs a ServiceNode object.  Can take a data dict (which typically contains all the
+        fields fetched from a row of the service_nodes table, but must contain at least pubkey), or
+        a (pubkey or snid) + uid pair to do the query during construction.
         """
         if data:
             if 'pubkey' not in data:
@@ -34,8 +34,10 @@ class ServiceNode:
             cur = pgsql.dict_cursor()
             key = 'id' if snid else 'pubkey'
             cur.execute('SELECT * FROM service_nodes WHERE ' + key + ' = %s AND uid = %s', (snid or pubkey, uid))
-            self._data = cur.fetchone()
-            if not self._data:
+            data = cur.fetchone()
+            if data:
+                self._data = dict(data)
+            else:
                 raise ValueError("Given SN " + key + " is unknown/invalid")
         else:
             raise RuntimeError("Invalid arguments: either 'data' or 'pubkey'/'uid' arguments must be supplied")
@@ -53,9 +55,24 @@ class ServiceNode:
             pgsql.cursor().execute("UPDATE service_nodes SET testnet = %s WHERE id = %s AND uid = %s",
                     (self.testnet, self._data['id'], self._data['uid']))
 
+    @staticmethod
+    def all(uid, sortkey=None):
+        cur = pgsql.dict_cursor()
+        cur.execute("SELECT * FROM service_nodes WHERE uid = %s", (uid,))
+        sns = []
+        for row in cur:
+            sns.append(ServiceNode(row))
+        if sortkey:
+            sns.sort(key=sortkey)
+        return sns
+
 
     def __getitem__(self, key):
         return self._data[key]
+
+
+    def __contains__(self, key):
+        return key in self._data
 
 
     def active(self):
@@ -71,16 +88,60 @@ class ServiceNode:
         return self._state[key] if self._state and key in self._state else None
 
 
+    def stored(self):
+        """Returns whether this SN is stored in the database (technically, whether it has an id)"""
+        return bool('id' in self._data and self._data['id'])
+
+
     def update(self, **kwargs):
-        cur = pgsql.cursor()
-        sets, vals = [], []
+        """Updates one or more keys in the database for this SN record.  This object's data gets
+        updated to whatever actually gets stored in the database (i.e. incorporating any
+        database-side conversions)"""
+
+        if any(x not in self._data for x in ('id', 'uid')):
+            raise RuntimeError('Unable to update an non-stored service node record')
+        if 'id' in kwargs:
+            raise RuntimeError("Can't update internal id!")
+        keys, vals = [], []
         for k, v in kwargs.items():
-            sets.append(k + ' = %s')
+            keys.append(k)
             vals.append(v)
         vals += (self._data['id'], self._data['uid'])
-        cur.execute("UPDATE service_nodes SET " + ", ".join(sets) + " WHERE id = %s AND uid = %s", tuple(vals))
+        cur = pgsql.dict_cursor()
+        cur.execute("UPDATE service_nodes SET " + ", ".join(k + " = %s" for k in keys) + " WHERE id = %s AND uid = %s" +
+                " RETURNING " + ", ".join(keys), tuple(vals))
 
-        self._data.update(kwargs)
+        self._data.update(cur.fetchone())
+
+
+    def delete(self):
+        """Removes this SN from the database.  This object remains intact, but the `id` value will
+        be deleted"""
+        if any(x not in self._data for x in ('id', 'uid')):
+            raise RuntimeError('Unable to delete an non-stored service node record')
+        pgsql.cursor().execute("DELETE FROM service_nodes WHERE id = %s AND uid = %s", (self._data['id'], self._data['uid']))
+        del self._data['id']
+
+
+    def insert(self):
+        """Creates a new SN record in the database for this SN.  The SN must have been created with
+        data elements that include only database columns.  After the insertion all values will be
+        update to the just-inserted values as stored in the database (i.e. incorporating any
+        database-level conversions or defaults)"""
+        if 'id' in self._data:
+            raise RuntimeError("SN is already stored")
+        if 'uid' not in self._data or 'pubkey' not in self._data:
+            raise RuntimeError("Cannot insert a SN row without a uid and pubkey")
+        cols, vals = [], []
+        for c, v in self._data.items():
+            cols.append(c)
+            vals.append(v)
+        cols = ', '.join(cols)
+        vals = tuple(vals)
+        cur = pgsql.dict_cursor()
+        cur.execute("INSERT INTO service_nodes ("+cols+") VALUES %s RETURNING *", (vals,))
+        self._data.update(cur.fetchone())
+
 
     def shortpub(self):
         return self._data['pubkey'][0:6] + '…' + self._data['pubkey'][-3:]
@@ -88,7 +149,7 @@ class ServiceNode:
 
     def alias(self):
         """Returns sn['alias'], if set, otherwise a ellipsized version of the pubkey"""
-        return self._data['alias'] or self.shortpub()
+        return ('alias' in self._data and self._data['alias']) or self.shortpub()
 
 
     def operator_fee(self):
@@ -143,7 +204,7 @@ class ServiceNode:
         elif self.testnet:
             height = lokisnbot.testnet_network_info['height']
             stake_blocks = TESTNET_STAKE_BLOCKS
-        elif self._data:
+        else:
             height = lokisnbot.network_info['height']
             stake_blocks = STAKE_BLOCKS
         return (self._state['registration_height'] + stake_blocks - height + 1) * AVERAGE_BLOCK_SECONDS

@@ -85,7 +85,7 @@ def main_menu(update: Update, context: CallbackContext, reply='', last_button=In
     choices.append([last_button])
 
     need_flush = False
-    for x in ('want_alias', 'want_note', 'want_wallet', 'want_faucet_address'):
+    for x in ('want_alias', 'want_note', 'want_wallet', 'want_faucet_address', 'want_add_sn'):
         if x in context.user_data:
             del context.user_data[x]
 
@@ -94,10 +94,19 @@ def main_menu(update: Update, context: CallbackContext, reply='', last_button=In
 
     uid = get_uid(update, context)
     cur = pgsql.cursor()
-    cur.execute("SELECT COUNT(*) FROM service_nodes WHERE uid = %s", (uid,))
-    num = cur.fetchone()[0]
-    if num > 0:
-        reply += "I am currently monitoring *{}* service node{} for you.".format(num, 's' if num != 1 else '')
+    cur.execute("SELECT COUNT(*), testnet FROM service_nodes WHERE uid = %s GROUP BY testnet", (uid,))
+    mainnet, testnet = 0, 0
+    for row in cur:
+        if row[1]:
+            testnet = row[0]
+        else:
+            mainnet = row[0]
+
+    if mainnet > 0 or testnet > 0:
+        reply += "I am currently monitoring *{}* service node{}".format(mainnet, 's' if mainnet != 1 else '')
+        if testnet > 0:
+            reply += " and *{}* testnet service node{}".format(testnet, 's' if testnet != 1 else '')
+        reply += " for you."
     else:
         reply += "I am not currently monitoring any service nodes for you."
 
@@ -224,8 +233,7 @@ def service_nodes_menu(update: Update, context: CallbackContext, reply_text=''):
     cur = pgsql.dict_cursor()
     uid = get_uid(update, context)
     cur.execute("SELECT * FROM service_nodes WHERE uid = %s ORDER BY testnet, alias, pubkey", (uid,))
-    for row in cur:
-        sn = ServiceNode(row)
+    for sn in ServiceNode.all(uid, sortkey=lambda sn: (sn['testnet'], sn['alias'] is None, sn['alias'] or sn['pubkey'])):
         snbutton = InlineKeyboardButton(
                 sn.status_icon() + ' ' + ('{} ({})'.format(sn.alias(), sn.shortpub()) if sn['alias'] else sn.shortpub()),
                 callback_data='sn:{}'.format(sn['id']))
@@ -249,36 +257,30 @@ def service_nodes_menu(update: Update, context: CallbackContext, reply_text=''):
 
 @run_async
 def service_nodes_expiries(update: Update, context: CallbackContext):
-    mysns, mytsns = [], []
-    cur = pgsql.dict_cursor()
     uid = get_uid(update, context)
-    cur.execute("SELECT * FROM service_nodes WHERE uid = %s ORDER BY alias, pubkey", (uid,))
-    for row in cur:
-        sn = ServiceNode(row)
-        (mytsns if sn.testnet else mysns).append(sn)
-
-    mysns.sort(key=lambda sn: sn.expiry_block() or 0)
-    mytsns.sort(key=lambda sn: sn.expiry_block() or 0)
+    sns = ServiceNode.all(uid, sortkey=lambda sn: (sn['testnet'], sn.expiry_block() or float("inf"), sn['alias'] or sn['pubkey']))
 
     height = lokisnbot.network_info['height']
-    if mytsns:
-        theight = lokisnbot.testnet_network_info['height']
-
     msg = '*Service node expirations:*\n'
-    for prepend, sns in (('', mysns), ('\n*Testnet service node expirations:*\n', mytsns)):
-        msg += prepend
-        for sn in sns:
-            msg += '{} {}: '.format(sn.status_icon(), sn.alias())
-            if sn.active():
-                msg += 'Block _{}_ (_{}_)\n'.format(sn.expiry_block(), friendly_time(sn.expires_in()))
-            else:
-                msg += 'Expired/deregistered\n'
+    testnet = False
+    for sn in sns:
+        if not testnet and sn['testnet']:
+            msg += '\n*Testnet service node expirations:*\n'
+            height = lokisnbot.testnet_network_info['height']
+            testnet = True
+
+        msg += '{} {}: '.format(sn.status_icon(), sn.alias())
+        if sn.active():
+            msg += 'Block _{}_ (_{}_)\n'.format(sn.expiry_block(), friendly_time(sn.expires_in()))
+        else:
+            msg += 'Expired/deregistered\n'
 
     service_nodes_menu(update, context, reply_text=msg)
 
 
 @run_async
 def service_node_add(update: Update, context: CallbackContext):
+    context.user_data['want_add_sn'] = True
     send_reply(update, context, 'Okay, send me the public key of the service node to add:', None)
 
 
@@ -290,8 +292,13 @@ def service_node_menu(update: Update, context: CallbackContext, ):
 
 @run_async
 def service_node_menu_inplace(update: Update, context: CallbackContext):
-    snid = int(update.callback_query.data.split(':', 1)[1])
-    return service_node(update, context, snid,
+    snid = update.callback_query.data.split(':', 1)[1]
+    sn = None
+    if snid == 'last':
+        snid = None
+        sn = ServiceNode({ 'pubkey': context.user_data['sn_last_viewed'] })
+        del context.user_data['sn_last_viewed']
+    return service_node(update, context, snid=snid, sn=sn,
             callback=lambda msg, reply_markup: context.bot.edit_message_text(
                 text=msg, parse_mode=ParseMode.MARKDOWN,
                 reply_markup=reply_markup, chat_id=update.callback_query.message.chat_id,
@@ -299,7 +306,7 @@ def service_node_menu_inplace(update: Update, context: CallbackContext):
 
 
 @run_async
-def service_node_input(update: Update, context: CallbackContext):
+def service_node_input(update: Update, context: CallbackContext, pubkey=None):
 
     uid = get_uid(update, context)
 
@@ -336,47 +343,66 @@ def service_node_input(update: Update, context: CallbackContext):
         return turn_faucet(update, context)
 
 
-    pubkey = update.message.text
+    if not pubkey:
+        pubkey = update.message.text
 
     if not re.match('^[0-9a-f]{64}$', pubkey):
-        send_reply(update, context, dead_end=True, message='Sorry, I didn\'t understand your message.')
-        return
+        if 'want_add_sn' in user_data:
+            return send_reply(update, context, message="That doesn't look like a valid service node public key; please check the key and try again:")
+        else:
+            return send_reply(update, context, dead_end=True, message='Sorry, I didn\'t understand your message.')
 
-    cur = pgsql.cursor()
-    cur.execute("SELECT id FROM service_nodes WHERE uid = %s AND pubkey = %s",
-            (uid, pubkey))
-    found = cur.fetchone()
+    just_looking = True
+    if 'want_add_sn' in user_data:
+        del user_data['want_add_sn']
+        just_looking = False
 
-    if found:
-        snid = found[0]
+    sn = None
+    try:
+        sn = ServiceNode(uid=uid, pubkey=pubkey)
+    except ValueError:
+        pass
+
+    reply_text = ''
+    if sn and not just_looking:
         reply_text = 'I am _already_ monitoring service node _{sn[pubkey]}_ for you.  Current status:'
 
-    else:
-        active, complete, lrbh, testnet = False, False, None, False
+    if not sn and just_looking:
+        sn = ServiceNode({ 'pubkey': pubkey })
+
+    elif not sn:
+        sn_data = { 'pubkey': pubkey, 'uid': uid }
         sns, tsns = lokisnbot.sn_states, lokisnbot.testnet_sn_states
         if pubkey in sns:
-            active = True
-            complete = sns[pubkey]['total_contributed'] >= sns[pubkey]['staking_requirement']
-            lrbh = sns[pubkey]['last_reward_block_height']
-            reply_text = 'Okay, I\'m now monitoring service node _{sn[pubkey]}_ for you.  Current status:'
+            sn_data['active'] = True
+            sn_data['complete'] = sns[pubkey]['total_contributed'] >= sns[pubkey]['staking_requirement']
+            sn_data['last_reward_block_height'] = sns[pubkey]['last_reward_block_height']
+            reply_text = "Okay, I'm now monitoring service node _{sn[pubkey]}_ for you.  Current status:"
         elif pubkey in tsns:
-            active = True
-            testnet = True
-            complete = tsns[pubkey]['total_contributed'] >= tsns[pubkey]['staking_requirement']
-            lrbh = tsns[pubkey]['last_reward_block_height']
-            reply_text = 'Okay, I\'m now monitoring *testnet* service node _{sn[pubkey]}_ for you.  Current status:'
+            sn_data['active'] = True
+            sn_data['testnet'] = True
+            sn_data['complete'] = tsns[pubkey]['total_contributed'] >= tsns[pubkey]['staking_requirement']
+            sn_data['last_reward_block_height'] = tsns[pubkey]['last_reward_block_height']
+            reply_text = "Okay, I'm now monitoring *testnet* service node _{sn[pubkey]}_ for you.  Current status:"
         else:
-            reply_text = 'Service node _{sn[pubkey]}_ isn\'t currently registered on the network, but I\'ll start monitoring it for you once it appears.'
-        cur.execute("INSERT INTO service_nodes (uid, pubkey, active, complete, last_reward_block_height, testnet) VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
-                (uid, pubkey, active, complete, lrbh, testnet))
-        snid = cur.fetchone()[0]
+            reply_text = "Service node _{sn[pubkey]}_ isn't currently registered on the network, but I'll start monitoring it for you once it appears."
 
-    return service_node(update, context, snid, reply_text)
+        sn = ServiceNode(sn_data)
+        sn.insert()
+
+    return service_node(update, context, sn=sn, reply_text=reply_text)
 
 
-def service_node(update: Update, context: CallbackContext, snid, reply_text = '', callback = None):
+def service_node(update: Update, context: CallbackContext, snid=None, reply_text='', callback=None, pubkey=None, sn=None):
     uid = get_uid(update, context)
-    sn = ServiceNode(uid=uid, snid=snid)
+    if snid or pubkey:
+        sn = ServiceNode(uid=uid, snid=snid, pubkey=pubkey)
+    elif not sn:
+        raise RuntimeError("service_node requires either snid or sn")
+
+    if 'id' in sn:
+        snid = sn['id']
+
     reply_text = reply_text.format(sn=sn, alias=sn.alias())
     if reply_text:
         reply_text += '\n\n'
@@ -390,7 +416,7 @@ def service_node(update: Update, context: CallbackContext, snid, reply_text = ''
         sns = lokisnbot.testnet_sn_states
         reply_text += '🚧 This is a *testnet* service node! 🚧\n'
 
-    if sn['note']:
+    if 'note' in sn and sn['note']:
         reply_text += 'Note: ' + escape_markdown(sn['note']) + '\n'
 
     if sn.active():
@@ -442,34 +468,44 @@ def service_node(update: Update, context: CallbackContext, snid, reply_text = ''
             reply_text += 'Operator fee: *{:.1f}%*\n'.format(sn.operator_fee() * 100)
             reply_text += 'Registration expiry: ' + reg_expiry
 
-        reply_text += 'Reward notifications: *' + ('en' if sn['rewards'] else 'dis') + 'abled*\n'
-        reply_text += 'Close-to-expiry notifications: *' + ('en' if sn['expires_soon'] else 'dis') + 'abled*\n'
+        if 'id' in sn:
+            reply_text += 'Reward notifications: *' + ('en' if sn['rewards'] else 'dis') + 'abled*\n'
+            reply_text += 'Close-to-expiry notifications: *' + ('en' if sn['expires_soon'] else 'dis') + 'abled*\n'
 
     else:  # not active:
-        if sn['alias']:
+        if 'alias' in sn and sn['alias']:
             reply_text += 'Service node _{}_ is not registered\n'.format(pubkey)
         else:
             reply_text += 'Not registered\n'
 
     expurl = explorer(sn.testnet)
-    menu = InlineKeyboardMarkup([
-        [InlineKeyboardButton('Refresh', callback_data='refresh:{}'.format(snid)),
-         InlineKeyboardButton('View on '+expurl, url='https://{}/service_node/{}'.format(expurl, pubkey))],
-        [InlineKeyboardButton('Stop monitoring', callback_data='stop:{}'.format(snid))],
-        [InlineKeyboardButton('Update alias', callback_data='alias:{}'.format(snid)),
-            InlineKeyboardButton('Remove alias', callback_data='del_alias:{}'.format(snid))]
-            if sn['alias'] else
-        [InlineKeyboardButton('Set alias', callback_data='alias:{}'.format(snid))],
-        [InlineKeyboardButton('Change note', callback_data='note:{}'.format(snid)),
-         InlineKeyboardButton('Delete note', callback_data='del_note:{}'.format(snid))]
-            if sn['note'] else
-        [InlineKeyboardButton('Add custom note', callback_data='note:{}'.format(snid))],
-        [InlineKeyboardButton(('Disable' if sn['rewards'] else 'Enable') + ' reward notifications',
-            callback_data=('dis' if sn['rewards'] else 'en') + 'able_reward:{}'.format(snid))],
-        [InlineKeyboardButton(('Disable' if sn['expires_soon'] else 'Enable') + ' close-to-expiry notifications',
-            callback_data=('dis' if sn['expires_soon'] else 'en') + 'able_expires_soon:{}'.format(snid))],
-        [InlineKeyboardButton('< Service nodes', callback_data='sns'), InlineKeyboardButton('<< Main menu', callback_data='main')]
-        ])
+    if 'id' not in sn:  # If it has no row id then it isn't something this user is watching yet
+        context.user_data['sn_last_viewed'] = pubkey
+        menu = InlineKeyboardMarkup([
+            [InlineKeyboardButton('Refresh', callback_data='refresh:last'),
+             InlineKeyboardButton('View on '+expurl, url='https://{}/service_node/{}'.format(expurl, pubkey))],
+            [InlineKeyboardButton('Start monitoring {}'.format(sn.alias()), callback_data='start:last')],
+            [InlineKeyboardButton('< Service nodes', callback_data='sns'), InlineKeyboardButton('<< Main menu', callback_data='main')]
+            ])
+    else:
+        menu = InlineKeyboardMarkup([
+            [InlineKeyboardButton('Refresh', callback_data='refresh:{}'.format(snid)),
+             InlineKeyboardButton('View on '+expurl, url='https://{}/service_node/{}'.format(expurl, pubkey))],
+            [InlineKeyboardButton('Stop monitoring', callback_data='stop:{}'.format(snid))],
+            [InlineKeyboardButton('Update alias', callback_data='alias:{}'.format(snid)),
+                InlineKeyboardButton('Remove alias', callback_data='del_alias:{}'.format(snid))]
+                if sn['alias'] else
+            [InlineKeyboardButton('Set alias', callback_data='alias:{}'.format(snid))],
+            [InlineKeyboardButton('Change note', callback_data='note:{}'.format(snid)),
+             InlineKeyboardButton('Delete note', callback_data='del_note:{}'.format(snid))]
+                if sn['note'] else
+            [InlineKeyboardButton('Add custom note', callback_data='note:{}'.format(snid))],
+            [InlineKeyboardButton(('Disable' if sn['rewards'] else 'Enable') + ' reward notifications',
+                callback_data=('dis' if sn['rewards'] else 'en') + 'able_reward:{}'.format(snid))],
+            [InlineKeyboardButton(('Disable' if sn['expires_soon'] else 'Enable') + ' close-to-expiry notifications',
+                callback_data=('dis' if sn['expires_soon'] else 'en') + 'able_expires_soon:{}'.format(snid))],
+            [InlineKeyboardButton('< Service nodes', callback_data='sns'), InlineKeyboardButton('<< Main menu', callback_data='main')]
+            ])
 
     if not callback:
         callback = lambda msg, markup: send_reply(update, context, msg, markup)
@@ -477,48 +513,59 @@ def service_node(update: Update, context: CallbackContext, snid, reply_text = ''
 
 
 @run_async
+def start_monitoring(update: Update, context: CallbackContext):
+    context.user_data['want_add_sn'] = True
+    pubkey = context.user_data['sn_last_viewed']
+    del context.user_data['sn_last_viewed']
+    service_node_input(update, context, pubkey=pubkey)
+
+
+@run_async
 def stop_monitoring(update: Update, context: CallbackContext):
     uid = get_uid(update, context)
     snid = int(update.callback_query.data.split(':', 1)[1])
-    cur = pgsql.cursor()
-    cur.execute("DELETE FROM service_nodes WHERE uid = %s AND id = %s RETURNING pubkey", (uid, snid))
-    found = cur.fetchone()
-    msg = ("Okay, I'm not longer monitoring service node _{}_ for you.".format(found[0]) if found else
-            "I couldn't find that service node; please try again")
+    try:
+        sn = ServiceNode(snid=snid, uid=uid)
+    except ValueError:
+        return service_nodes_menu(update, context, "I couldn't find that service node; please try again")
+    sn.delete()
+    msg = "Okay, I'm not longer monitoring service node " + (
+            "_{[alias]}_ (_{[pubkey]}_)" if sn['alias'] else "_{[pubkey]}_").format(sn) + " for you."
     return service_nodes_menu(update, context, msg)
 
 
 def request_sn_field(update: Update, context: CallbackContext, field, send_fmt, current_fmt):
     uid = get_uid(update, context)
     snid = int(update.callback_query.data.split(':', 1)[1])
-    cur = pgsql.cursor()
-    cur.execute("SELECT pubkey, alias, "+field+" FROM service_nodes WHERE uid = %s AND id = %s", (uid, snid))
-    found = cur.fetchone()
-    if found:
-        context.user_data['want_'+field] = snid
-        msg = send_fmt.format(ServiceNode({ 'pubkey': found[0], 'alias': found[1] }).alias(), pubkey=found[0])
-        if found[2]:
-            msg += '\n\n' + current_fmt.format(found[2], escaped=escape_markdown(found[2]))
-        send_reply(update, context, msg)
-    else:
+    try:
+        sn = ServiceNode(snid=snid, uid=uid)
+    except ValueError:
         send_reply(update, context, dead_end=True, message="I couldn't find that service node!")
+
+    context.user_data['want_'+field] = snid
+    msg = send_fmt.format(sn=sn, alias=sn.alias())
+    if sn[field]:
+        msg += '\n\n' + current_fmt.format(sn[field], escaped=escape_markdown(sn[field]))
+    send_reply(update, context, msg)
 
 
 def set_sn_field(update: Update, context: CallbackContext, field, value, success):
     uid = get_uid(update, context)
     snid = int(update.callback_query.data.split(':', 1)[1])
-    cur = pgsql.cursor()
-    cur.execute("UPDATE service_nodes SET "+field+" = %s WHERE uid = %s AND id = %s RETURNING pubkey, alias", (value, uid, snid))
-    found = cur.fetchone()
-    msg = (success.format(ServiceNode({ 'pubkey': found[0], 'alias': found[1] }).alias()) if found else
-            "I couldn't find that service node!")
-    service_node(update, context, snid, msg)
+    try:
+        sn = ServiceNode(snid=snid, uid=uid)
+    except ValueError:
+        return service_node(update, context, snid, "I couldn't find that service node!")
+
+    sn.update(**{field: value})
+
+    service_node(update, context, sn=sn, reply_text=success.format(sn.alias()))
 
 
 @run_async
 def ask_note(update: Update, context: CallbackContext):
     request_sn_field(update, context, 'note',
-            "Send me a custom note to set for service node _{}_.",
+            "Send me a custom note to set for service node _{alias}_.",
             "The current note is: {escaped}")
 
 
@@ -530,7 +577,7 @@ def del_note(update: Update, context: CallbackContext):
 @run_async
 def ask_alias(update: Update, context: CallbackContext):
     request_sn_field(update, context, 'alias',
-            "Send me an alias to use for this service node instead of the public key (_{pubkey}_).",
+            "Send me an alias to use for this service node instead of the public key (_{sn[pubkey]}_).",
             "The current alias is: {}")
 
 
@@ -650,10 +697,12 @@ def dispatch_query(update: Update, context: CallbackContext):
         call = service_node_add
     elif re.match(r'sn:\d+', q):
         call = service_node_menu
-    elif re.match(r'refresh:\d+', q):
+    elif re.match(r'refresh:(?:\d+|last)', q):
 #        bot.delete_message(chat_id=update.callback_query.message.chat_id, message_id=update.callback_query.message.message_id)
         edit = False
         call = service_node_menu_inplace
+    elif q == 'start:last':
+        call = start_monitoring
     elif re.match(r'stop:\d+', q):
         call = stop_monitoring
     elif re.match(r'alias:\d+', q):
