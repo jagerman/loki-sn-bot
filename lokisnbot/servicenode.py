@@ -189,29 +189,39 @@ class ServiceNode:
         return '🌑' if pct < 26 else '🌒' if pct < 50 else '🌓' if pct < 75 else '🌔' if pct < 100 else '🌕'
 
 
+    def infinite_stake(self):
+        """Returns true if this SN was registered with an infinite stake (whether or not that stake is currently set to expire)."""
+        if not self.active():
+            return None;
+        return self._state['registration_height'] >= (TESTNET_INFINITE_FROM if self.testnet else INFINITE_FROM)
+
+
     def expiry_block(self):
         """Returns the block when this SN expires, or None if it isn't registered or doesn't expire"""
-        if not self.active():  # FIXME: infinite stake
+        if not self.active():
             return None
-        return self._state['registration_height'] + (TESTNET_STAKE_BLOCKS if self.testnet else STAKE_BLOCKS)
+        if self.infinite_stake():
+            return self._state['requested_unlock_height'] or None
+        else:
+            return self._state['registration_height'] + (TESTNET_STAKE_BLOCKS if self.testnet else STAKE_BLOCKS)
 
 
     def expires_in(self):
         """Returns the estimate of the time until the stake expires, in seconds.  Returns None if
         the SN is not registered or if the SN uses infinite staking (once supported)."""
-        if not self.active():
+        block = self.expiry_block()
+        if not block:
             return None
         elif self.testnet:
             height = lokisnbot.testnet_network_info['height']
-            stake_blocks = TESTNET_STAKE_BLOCKS
         else:
             height = lokisnbot.network_info['height']
-            stake_blocks = STAKE_BLOCKS
-        return (self._state['registration_height'] + stake_blocks - height + 1) * AVERAGE_BLOCK_SECONDS
+        return (block - height + 1) * AVERAGE_BLOCK_SECONDS
 
 
     def expires_soon(self):
-        return self.expires_in() < 3600 * max(
+        ttl = self.expires_in()
+        return ttl is not None and ttl < 3600 * max(
                 lokisnbot.config.TESTNET_EXPIRY_THRESHOLDS if self.testnet else lokisnbot.config.EXPIRY_THRESHOLDS)
 
 
@@ -220,12 +230,7 @@ class ServiceNode:
         if not self.active():
             return status_icon
         elif self.testnet:
-            height = lokisnbot.testnet_network_info['height']
-            stake_blocks = TESTNET_STAKE_BLOCKS
             prefix = '🚧'
-        else:
-            height = lokisnbot.network_info['height']
-            stake_blocks = STAKE_BLOCKS
 
         proof_age = int(time.time() - self._state['last_uptime_proof'])
         if proof_age >= PROOF_AGE_WARNING:
@@ -234,6 +239,8 @@ class ServiceNode:
             status_icon = self.moon_symbol()
         elif self.expires_soon():
             status_icon = '⏱'
+        elif self.infinite_stake() and self.expiry_block():
+            status_icon = '📆'
         else:
             status_icon = '💚'
 

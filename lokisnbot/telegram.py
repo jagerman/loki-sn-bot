@@ -121,13 +121,18 @@ def start(update: Update, context: CallbackContext):
 @run_async
 def status(update: Update, context: CallbackContext, testnet=False):
     sns = lokisnbot.testnet_sn_states if testnet else lokisnbot.sn_states
-    active, waiting, old_proof = 0, 0, 0
+    active, waiting, infinite, unlocking, old_proof = 0, 0, 0, 0, 0
     now = int(time.time())
     for sn in sns.values():
         if sn['total_contributed'] < sn['staking_requirement']:
             waiting += 1
         else:
             active += 1
+        if sn['registration_height'] >= (TESTNET_INFINITE_FROM if testnet else INFINITE_FROM):
+            if sn['requested_unlock_height']:
+                unlocking += 1
+            else:
+                infinite += 1
         if sn['last_uptime_proof'] and now - sn['last_uptime_proof'] > PROOF_AGE_WARNING:
             old_proof += 1
 
@@ -135,6 +140,8 @@ def status(update: Update, context: CallbackContext, testnet=False):
     reply_text = '🚧 *Testnet* 🚧\n' if testnet else ''
     reply_text += 'Network height: *{}*\n'.format(h);
     reply_text += 'Service nodes: *{}* _(active)_ + *{}* _(awaiting contribution)_\n'.format(active, waiting)
+    if infinite or unlocking:
+        reply_text += 'Infinite stake SNs: *{}* _(no expiry)_ + *{}* _(unlocking)_\n'.format(infinite, unlocking)
     reply_text += '*{}* service node'.format(old_proof) + (' has uptime proof' if old_proof == 1 else 's have uptime proofs') + ' > 1h5m\n';
 
     snbr = 0.5 * (28 + 100 * 2**(-h/64800))
@@ -270,10 +277,12 @@ def service_nodes_expiries(update: Update, context: CallbackContext):
             testnet = True
 
         msg += '{} {}: '.format(sn.status_icon(), sn.alias())
-        if sn.active():
-            msg += 'Block _{}_ (_{}_)\n'.format(sn.expiry_block(), friendly_time(sn.expires_in()))
-        else:
+        if not sn.active():
             msg += 'Expired/deregistered\n'
+        elif sn.infinite_stake() and sn.expiry_block() is None:
+            msg += 'Never (infinite stake)\n'
+        else:
+            msg += 'Block _{}_ (_{}_)\n'.format(sn.expiry_block(), friendly_time(sn.expires_in()))
 
     service_nodes_menu(update, context, reply_text=msg)
 
@@ -426,7 +435,11 @@ def service_node(update: Update, context: CallbackContext, snid=None, reply_text
 
         reply_text += 'Last uptime proof: ' + sn.format_proof_age() + '\n'
 
-        reg_expiry = 'Block *{}* (approx. {})\n'.format(sn.expiry_block(), friendly_time(sn.expires_in()))
+        expiry_block = sn.expiry_block()
+        if sn.infinite_stake() and expiry_block is None:
+            reg_expiry = 'Never (infinite stake)\n'
+        else:
+            reg_expiry = 'Block *{}* (approx. {})\n'.format(sn.expiry_block(), friendly_time(sn.expires_in()))
 
         cur2 = pgsql.cursor()
         cur2.execute("SELECT wallet FROM wallet_prefixes WHERE uid = %s", (uid,))

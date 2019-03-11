@@ -67,11 +67,16 @@ def loki_updater():
                 print("An exception occured during loki testnet stats fetching: {}; ignoring the error".format(e))
                 tsns, tstatus = None, None
 
-        if tsns:
-            for pubkey, x in tsns.items():
-                expected_dereg_height[pubkey] = x['registration_height'] + TESTNET_STAKE_BLOCKS
-        for pubkey, x in sns.items():
-            expected_dereg_height[pubkey] = x['registration_height'] + STAKE_BLOCKS
+        for s, infinite_from, finite_blocks in (
+                (tsns, TESTNET_INFINITE_FROM, TESTNET_STAKE_BLOCKS),
+                (sns, INFINITE_FROM, STAKE_BLOCKS)):
+            if not s:
+                continue
+            for pubkey, x in s.items():
+                if x['registration_height'] >= infinite_from:
+                    expected_dereg_height[pubkey] = x['requested_unlock_height']
+                else:
+                    expected_dereg_height[pubkey] = x['registration_height'] + TESTNET_STAKE_BLOCKS
 
         if not hasattr(tg.updater, 'bot'):
             print("no bot yet!")
@@ -110,7 +115,7 @@ def loki_updater():
                 if not sn.active():
                     if not sn['notified_dereg']:
                         dereg_msg = ('📅 Service node _{}_ reached the end of its registration period and is no longer registered on the network.'.format(name)
-                                if pubkey in expected_dereg_height and expected_dereg_height[pubkey] <= netheight else
+                                if pubkey in expected_dereg_height and 0 < expected_dereg_height[pubkey] <= netheight else
                                 '🛑 *UNEXPECTED DEREGISTRATION!* Service node _{}_ is no longer registered on the network! 😦'.format(name))
                         if tg.send_message_or_shutup(tg.updater.bot, chatid, dereg_msg, reply_markup=sn_details_buttons):
                             sn.update(active=False, notified_dereg=True, complete=False, last_contributions=0, expiry_notified=None)
@@ -158,19 +163,36 @@ def loki_updater():
                         just_completed = True
 
 
+                req_unlock = None
+                if sn.infinite_stake():
+                    req_height = sn.expiry_block()
+                    if req_height is None:
+                        if sn['requested_unlock_height'] is not None or sn['unlock_notified']:
+                            sn.update(requested_unlock_height=None, unlock_notified=False)
+                    elif not sn['unlock_notified']:
+                        if tg.send_message_or_shutup(tg.updater.bot, chatid,
+                                '📆 💔 Service node _{}_ has started a stake unlock.  Stakes will unlock in {} (at block _{}_)'.format(
+                                    name, util.friendly_time((req_height - netheight) * AVERAGE_BLOCK_SECONDS), req_height),
+                                reply_markup=sn_details_buttons):
+                            sn.update(unlock_notified=True, requested_unlock_height=req_height)
+
 
                 if sn['expires_soon']:
                     expires_at, expires_in = sn.expiry_block(), sn.expires_in()
-                    notify_time = next((int(t*3600) for t in (config.TESTNET_EXPIRY_THRESHOLDS if sn.testnet else config.EXPIRY_THRESHOLDS) if expires_in <= t*3600), None)
-                    if notify_time and (not sn['expiry_notified'] or sn['expiry_notified'] > notify_time):
-                        hformat = '{:.0f}' if expires_in >= 7200 else '{:.1f}'
-                        if tg.send_message_or_shutup(tg.updater.bot, chatid,
-                                prefix+('⏱ Service node _{}_ registration expires in about '+hformat+' hour{} (block _{}_)').format(
-                                    name, expires_in/3600, '' if expires_in == 3600 else 's', expires_at),
-                                reply_markup=sn_details_buttons):
-                            sn.update(expiry_notified=notify_time)
-                    elif notify_time is None and sn['expiry_notified']:
-                        sn.update(expiry_notified=None)
+                    if sn.infinite_stake() and expires_at is None:
+                        if sn['expiry_notified']:
+                            sn.update(expiry_notified=None)
+                    else:
+                        notify_time = next((int(t*3600) for t in (config.TESTNET_EXPIRY_THRESHOLDS if sn.testnet else config.EXPIRY_THRESHOLDS) if expires_in <= t*3600), None)
+                        if notify_time and (not sn['expiry_notified'] or sn['expiry_notified'] > notify_time):
+                            hformat = '{:.0f}' if expires_in >= 7200 else '{:.1f}'
+                            if tg.send_message_or_shutup(tg.updater.bot, chatid,
+                                    prefix+('⏱ Service node _{}_ registration expires in about '+hformat+' hour{} (block _{}_)').format(
+                                        name, expires_in/3600, '' if expires_in == 3600 else 's', expires_at),
+                                    reply_markup=sn_details_buttons):
+                                sn.update(expiry_notified=notify_time)
+                        elif notify_time is None and sn['expiry_notified']:
+                            sn.update(expiry_notified=None)
 
                 lrbh = sn.state('last_reward_block_height')
                 if not sn['last_reward_block_height']:
