@@ -122,6 +122,7 @@ def start(update: Update, context: CallbackContext):
 def status(update: Update, context: CallbackContext, testnet=False):
     sns = lokisnbot.testnet_sn_states if testnet else lokisnbot.sn_states
     active, waiting, infinite, unlocking, old_proof = 0, 0, 0, 0, 0
+    version_counts = {}
     now = int(time.time())
     for sn in sns.values():
         if sn['total_contributed'] < sn['staking_requirement']:
@@ -135,6 +136,11 @@ def status(update: Update, context: CallbackContext, testnet=False):
                 infinite += 1
         if sn['last_uptime_proof'] and now - sn['last_uptime_proof'] > PROOF_AGE_WARNING:
             old_proof += 1
+        ver = ServiceNode.to_version_string(sn['service_node_version']) if 'service_node_version' in sn else None
+        if ver not in version_counts:
+            version_counts[ver] = 1
+        else:
+            version_counts[ver] += 1
 
     h = (lokisnbot.testnet_network_info if testnet else lokisnbot.network_info)['height']
     reply_text = '🚧 *Testnet* 🚧\n' if testnet else ''
@@ -143,6 +149,11 @@ def status(update: Update, context: CallbackContext, testnet=False):
     if infinite or unlocking:
         reply_text += 'Infinite stake SNs: *{}* _(no expiry)_ + *{}* _(unlocking)_\n'.format(infinite, unlocking)
     reply_text += '*{}* service node'.format(old_proof) + (' has uptime proof' if old_proof == 1 else 's have uptime proofs') + ' > 1h5m\n';
+
+    if len(version_counts) > (1 if None in version_counts else 0):
+        reply_text += 'SN versions: ' + ', '.join(
+                '*{}* _[{}]_'.format(v or "unknown", version_counts[v])
+                for v in sorted(version_counts.keys(), key=lambda x: x or "0.0.0", reverse=True)) + '\n'
 
     snbr = 0.5 * (28 + 100 * 2**(-h/64800))
     reply_text += 'Current SN stake requirement: *{:.2f}* LOKI\n'.format(lsr(h, testnet=testnet))
@@ -434,6 +445,12 @@ def service_node(update: Update, context: CallbackContext, snid=None, reply_text
         reply_text += 'Public key: _{}_\n'.format(sn['pubkey'])
 
         reply_text += 'Last uptime proof: ' + sn.format_proof_age() + '\n'
+
+        ver = sn.version()
+        reply_text += 'Service node version: *' + (ver or 'unknown') + '*'
+        if lokisnbot.config.WARN_VERSION_LESS_THAN and ver < lokisnbot.config.WARN_VERSION_LESS_THAN:
+            reply_text += ' ' + lokisnbot.config.WARN_VERSION_MSG
+        reply_text += '\n'
 
         expiry_block = sn.expiry_block()
         if sn.infinite_stake() and expiry_block is None:

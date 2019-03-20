@@ -177,6 +177,20 @@ def loki_updater():
                             sn.update(unlock_notified=True, requested_unlock_height=req_height)
 
 
+                snver = sn.version()
+                if snver and config.WARN_VERSION_LESS_THAN and snver < config.WARN_VERSION_LESS_THAN:
+                    if not sn['notified_obsolete'] or sn['notified_obsolete'] + 12*60*60 <= now:
+                        if tg.send_message_or_shutup(tg.updater.bot, chatid,
+                                prefix+'⚠ *WARNING:* Service node _{}_ is running *v{}*\n{}\nIf not upgraded before the fork this service node will deregister!'.format(name, sn.version(), config.WARN_VERSION_MSG),
+                                reply_markup=sn_details_buttons):
+                            sn.update(notified_obsolete=now)
+                elif snver and sn['notified_obsolete']:
+                    if tg.send_message_or_shutup(tg.updater.bot, chatid,
+                            prefix+'💖 Service node _{}_ is now running *v{}*.  Thanks for upgrading!'.format(name, sn.version()),
+                            reply_markup=sn_details_buttons):
+                        sn.update(notified_obsolete=None)
+
+
                 if sn['expires_soon']:
                     expires_at, expires_in = sn.expiry_block(), sn.expires_in()
                     if sn.infinite_stake() and expires_at is None:

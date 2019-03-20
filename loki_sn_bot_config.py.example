@@ -34,6 +34,10 @@ TESTNET_FAUCET_AMOUNT = 202000000000
 EXPIRY_THRESHOLDS = [6, 24, 48]
 TESTNET_EXPIRY_THRESHOLDS = [0.5, 2]
 
+# Add a warning to the SN version if less than this
+WARN_VERSION_LESS_THAN = "3.0.0"
+WARN_VERSION_MSG = ' ⚠ [3.0.0 upgrade required](https://github.com/loki-project/loki/releases)'
+
 # Telegram handle of the bot's owner.  This gets used in the bot's welcome message.  If set to None
 # or '' it will not be shown.
 OWNER = 'FIXME'

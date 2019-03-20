@@ -42,6 +42,7 @@ CREATE TABLE public.service_nodes (
     testnet boolean DEFAULT false NOT NULL,
     requested_unlock_height bigint,
     unlock_notified boolean DEFAULT false NOT NULL,
+    notified_obsolete bigint,
     CONSTRAINT valid_sn_pubkey CHECK ((pubkey ~ similar_escape('[0-9a-f]{64}'::text, NULL::text)))
 );
 

@@ -181,6 +181,29 @@ class ServiceNode:
                     ) + ' ago' + (' ⚠' if ago >= PROOF_AGE_WARNING else '')
                 )
 
+
+    @staticmethod
+    def to_version_string(snv):
+        """Takes a list like [1,2,3] and returns a string like "1.2.3" """
+
+        ver = None
+        # 3.0.x fakes its version as 2.3.x before the v11 fork to keep 2.0.x happy (which has a
+        # bug requiring major version == 2 for v10 network uptime proofs), so un-fake it:
+        if snv:
+            if len(snv) == 3 and snv[0] == 2 and snv[1] == 3:
+                ver = "3.0.{}".format(snv[2])
+            else:
+                ver = ".".join("{}".format(x) for x in snv)
+        return ver
+
+
+    def version(self):
+        """Return the version string of the service node, or None if not available.  (Requires a
+        patched lokid that adds this info)"""
+        return ServiceNode.to_version_string(self._state['service_node_version']
+                if 'service_node_version' in self._state else None)
+
+
     def moon_symbol(self, pct=None):
         if pct is None:
             pct = 0
@@ -235,6 +258,8 @@ class ServiceNode:
         proof_age = int(time.time() - self._state['last_uptime_proof'])
         if proof_age >= PROOF_AGE_WARNING:
             status_icon = '⚠'
+        elif lokisnbot.config.WARN_VERSION_LESS_THAN and self.version() < lokisnbot.config.WARN_VERSION_LESS_THAN:
+            status_icon = '🔼'
         elif self._state['total_contributed'] < self._state['staking_requirement']:
             status_icon = self.moon_symbol()
         elif self.expires_soon():
