@@ -448,7 +448,7 @@ def service_node(update: Update, context: CallbackContext, snid=None, reply_text
 
         ver = sn.version()
         reply_text += 'Service node version: *' + (ver or 'unknown') + '*'
-        if lokisnbot.config.WARN_VERSION_LESS_THAN and ver < lokisnbot.config.WARN_VERSION_LESS_THAN:
+        if lokisnbot.config.WARN_VERSION_LESS_THAN and ver and ver < lokisnbot.config.WARN_VERSION_LESS_THAN:
             reply_text += ' ' + lokisnbot.config.WARN_VERSION_MSG
         reply_text += '\n'
 
