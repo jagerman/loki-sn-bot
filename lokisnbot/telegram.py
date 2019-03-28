@@ -70,7 +70,7 @@ def get_uid(update, context):
     return context.user_data['uid']
 
 
-def main_menu(update: Update, context: CallbackContext, reply='', last_button=InlineKeyboardButton('Status', callback_data='status'), testnet_buttons=False):
+def main_menu(update: Update, context: CallbackContext, reply='', last_button=None, testnet_buttons=False):
     choices = [
         [InlineKeyboardButton('Service node(s)', callback_data='sns'), InlineKeyboardButton('Wallet(s)', callback_data='wallets')],
     ]
@@ -82,7 +82,12 @@ def main_menu(update: Update, context: CallbackContext, reply='', last_button=In
                 choices[-1].append(InlineKeyboardButton('Testnet status', callback_data='testnet_status'))
             if testnet_faucet:
                 choices[-1].append(InlineKeyboardButton('Testnet faucet', callback_data='testnet_faucet'))
-    choices.append([last_button])
+    if last_button:
+        choices.append([last_button])
+    else:
+        choices.append([InlineKeyboardButton('Status', callback_data='status')])
+        if lokisnbot.config.DONATION_ADDR:
+            choices[-1].append(InlineKeyboardButton('Donate', callback_data='donate'))
 
     need_flush = False
     for x in ('want_alias', 'want_note', 'want_wallet', 'want_faucet_address', 'want_add_sn'):
@@ -141,6 +146,8 @@ def status(update: Update, context: CallbackContext, testnet=False):
             version_counts[ver] = 1
         else:
             version_counts[ver] += 1
+        if ver is None:
+            print("ver is None for {}".format(sn), flush=True)
 
     h = (lokisnbot.testnet_network_info if testnet else lokisnbot.network_info)['height']
     reply_text = '🚧 *Testnet* 🚧\n' if testnet else ''
@@ -701,6 +708,23 @@ def ask_wallet(update: Update, context: CallbackContext):
     send_reply(update, context, msg)
 
 
+def donate(update: Update, context: CallbackContext):
+    chat_id = update.callback_query.message.chat_id
+    msg = 'Find this bot useful?  Donations appreciated: ' + lokisnbot.config.DONATION_ADDR
+    reply_markup = InlineKeyboardMarkup([[InlineKeyboardButton('<< Main menu', callback_data='main')]])
+    if lokisnbot.config.DONATION_QR_URL:
+        context.bot.send_photo(
+            chat_id=chat_id,
+            photo=lokisnbot.config.DONATION_QR_URL,
+            caption=msg,
+            reply_markup=reply_markup)
+    else:
+        context.bot.send_message(
+            chat_id=chat_id,
+            text=message,
+            reply_markup=reply_markup)
+
+
 def error(update: Update, context: CallbackContext):
     """Log Errors caused by Updates."""
     lokisnbot.logger.warning('Update "%s" caused error "%s"', update, context.error)
@@ -757,6 +781,8 @@ def dispatch_query(update: Update, context: CallbackContext):
         call = forget_wallet
     elif q == 'ask_wallet':
         call = ask_wallet
+    elif q == 'donate':
+        call = donate
 
     if edit:
         context.bot.edit_message_reply_markup(reply_markup=None,

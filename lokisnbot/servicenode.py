@@ -8,8 +8,8 @@ from .constants import *
 def lsr(h, testnet=False):
     if testnet:
         return 100
-    elif h >= 235987:
-        return 15000 + 24721 * 2**((101250-h)/129600.)
+    elif h >= 234767:
+        return 15000 + 25007 * 2**((101250-h)/129600.)
     else:
         return 10000 + 35000 * 2**((101250-h)/129600.)
 
