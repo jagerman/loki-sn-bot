@@ -44,3 +44,7 @@ OWNER = 'FIXME'
 
 # Extra information to include in the main menu/start message.  Set to None or '' to omit:
 EXTRA = 'This bot is free software available under a GPLv3+ license at: https://github.com/jagerman/loki-sn-bot\n\n'
+
+# Can be set to enable a donation menu + QR code
+DONATION_ADDR = None
+DONATION_QR_URL = None
