@@ -194,9 +194,9 @@ def loki_updater():
                     update_lv = False
                     if sn['last_version']:
                         msg = None
-                        if snver > sn['last_version']:
+                        if snver > sn['last_version'] > [0, 0, 0]:
                             msg = prefix+'💖 Service node _{}_ upgraded to *v{}* (from *v{}*)'
-                        elif snver < sn['last_version']:
+                        elif [0, 0, 0] < snver < sn['last_version']:
                             msg = prefix+'💔 Service node _{}_ *downgraded* to *v{}* (from *v{}*)!'
 
                         if msg and tg.send_message_or_shutup(tg.updater.bot, chatid,
