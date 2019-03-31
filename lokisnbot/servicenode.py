@@ -198,10 +198,13 @@ class ServiceNode:
 
 
     def version(self):
-        """Return the version string of the service node, or None if not available.  (Requires a
-        patched lokid that adds this info)"""
-        return ServiceNode.to_version_string(self._state['service_node_version']
-                if 'service_node_version' in self._state else None)
+        """Return the version string of the service node, typically as a 3-element list, or None if
+        not available.  (Requires a patched lokid that adds this info)"""
+        return self._state['service_node_version'] if 'service_node_version' in self._state else None
+
+
+    def version_str(self):
+        return ServiceNode.to_version_string(self.version())
 
 
     def moon_symbol(self, pct=None):

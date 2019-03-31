@@ -178,17 +178,45 @@ def loki_updater():
 
 
                 snver = sn.version()
-                if snver and config.WARN_VERSION_LESS_THAN and snver < config.WARN_VERSION_LESS_THAN:
-                    if not sn['notified_obsolete'] or sn['notified_obsolete'] + 12*60*60 <= now:
+                if snver:
+                    if config.WARN_VERSION_LESS_THAN and snver < config.WARN_VERSION_LESS_THAN:
+                        if not sn['notified_obsolete'] or sn['notified_obsolete'] + 12*60*60 <= now:
+                            if tg.send_message_or_shutup(tg.updater.bot, chatid,
+                                    prefix+'⚠ *WARNING:* Service node _{}_ is running *v{}*\n{}\nIf not upgraded before the fork this service node will deregister!'.format(name, sn.version_str(), config.WARN_VERSION_MSG),
+                                    reply_markup=sn_details_buttons):
+                                sn.update(notified_obsolete=now)
+                    elif sn['notified_obsolete']:
                         if tg.send_message_or_shutup(tg.updater.bot, chatid,
-                                prefix+'⚠ *WARNING:* Service node _{}_ is running *v{}*\n{}\nIf not upgraded before the fork this service node will deregister!'.format(name, sn.version(), config.WARN_VERSION_MSG),
+                                prefix+'💖 Service node _{}_ is now running *v{}*.  Thanks for upgrading!'.format(name, snnver),
                                 reply_markup=sn_details_buttons):
-                            sn.update(notified_obsolete=now)
-                elif snver and sn['notified_obsolete']:
-                    if tg.send_message_or_shutup(tg.updater.bot, chatid,
-                            prefix+'💖 Service node _{}_ is now running *v{}*.  Thanks for upgrading!'.format(name, sn.version()),
-                            reply_markup=sn_details_buttons):
-                        sn.update(notified_obsolete=None)
+                            sn.update(notified_obsolete=None)
+
+                    update_lv = False
+                    if sn['last_version']:
+                        msg = None
+                        if snver > sn['last_version']:
+                            msg = prefix+'💖 Service node _{}_ upgraded to *v{}* (from *v{}*)'
+                        elif snver < sn['last_version']:
+                            msg = prefix+'💔 Service node _{}_ *downgraded* to *v{}* (from *v{}*)!'
+
+                        if msg and tg.send_message_or_shutup(tg.updater.bot, chatid,
+                                msg.format(name, ServiceNode.to_version_string(snver), ServiceNode.to_version_string(sn['last_version'])),
+                                reply_markup=sn_details_buttons):
+                            update_lv = True
+                    else:
+                        update_lv = True
+
+                    if update_lv:
+                        sn.update(last_version=snver)
+
+
+#                if (snver and snver in ("3.0.0", "3.0.1")) or (snver is None and not sn['notified_obsolete']):
+#                    if not sn['notified_v300'] or sn['notified_v300'] + 60*60 <= now:
+#                        if tg.send_message_or_shutup(tg.updater.bot, chatid,
+#                                '🛑🛑🛑 *WARNING*  Service node _{}_ is running *v3.0.0* or *v3.0.1*, but a critical bug was discovered that will result in deregistrations.  An emergency update '
+#                                'to *v3.0.2* is ready for immediate deployment.  Note that the previous *v3.0.1* release did *NOT* fully correct the problem. '
+#                                'Please go to the Loki Service Nodes group (https://t.me/LokiServiceNodes) for more details.  (And apologies for the notifications, but this was important!)'.format(name)):
+#                            sn.update(notified_v300=now)
 
 
                 if sn['expires_soon']:

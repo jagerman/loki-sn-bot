@@ -453,8 +453,8 @@ def service_node(update: Update, context: CallbackContext, snid=None, reply_text
 
         reply_text += 'Last uptime proof: ' + sn.format_proof_age() + '\n'
 
-        ver = sn.version()
-        reply_text += 'Service node version: *' + (ver or 'unknown') + '*'
+        ver, verstr = sn.version(), sn.version_str()
+        reply_text += 'Service node version: *' + (verstr or 'unknown') + '*'
         if lokisnbot.config.WARN_VERSION_LESS_THAN and ver and ver < lokisnbot.config.WARN_VERSION_LESS_THAN:
             reply_text += ' ' + lokisnbot.config.WARN_VERSION_MSG
         reply_text += '\n'
