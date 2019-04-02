@@ -478,7 +478,9 @@ def service_node(update: Update, context: CallbackContext, snid=None, reply_text
                 for i, x in enumerate(sn.state('contributors')))
 
         if sn.staked():
-            reply_text += 'Status: *active*\nStake: *{:.9f}*\n'.format(total/COIN)
+            reg_height = sn.state('registration_height')
+            reply_text += 'Status: *active*\nStake: *{:.9f}*\nReg. height: *{}* (approx. {})\n'.format(
+                    total/COIN, reg_height, ago((height - reg_height) * AVERAGE_BLOCK_SECONDS))
             reply_text += stakes
             if len(sn.state('contributors')) > 1:
                 reply_text += 'Operator fee: *{:.1f}%*\n'.format(sn.operator_fee() * 100)
