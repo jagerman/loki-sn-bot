@@ -3,6 +3,12 @@
 
 # auth token for the telegram bot; get this from @BotFather
 TELEGRAM_TOKEN = "FIXME"
+# If set, listen on this port on localhost, and tell discord to reach us here
+# Both must be set; otherwise polling will be used instead.
+TELEGRAM_WEBHOOK_PORT, TELEGRAM_WEBHOOK_URL = 22080, None
+
+# login token for the discord bot; see https://discordpy.readthedocs.io/en/rewrite/discord.html
+DISCORD_TOKEN = "FIXME"
 
 # Postgresql database connection info; see database.pgsql for the SQL to create the needed tables
 PGSQL_CONNECT = { 'dbname': 'lokisnbot' }
@@ -29,22 +35,30 @@ TESTNET_WALLET_URL = None
 # TESTNET_WALLET_URL is set).  The value is in atomic units.
 TESTNET_FAUCET_AMOUNT = 202000000000
 
+# domain name of the block explorer
+EXPLORER = 'lokiblocks.com'
+# domain name of the testnet block explorer
+TESTNET_EXPLORER = 'lokitestnet.com'
+
 # Thresholds, in hours, at which to notify about an impending expiry.  These must be in increasing
 # order.
 EXPIRY_THRESHOLDS = [6, 24, 48]
 TESTNET_EXPIRY_THRESHOLDS = [0.5, 2]
 
 # Add a warning to the SN version if less than this
-WARN_VERSION_LESS_THAN = "3.0.0"
+WARN_VERSION_LESS_THAN = [3,0,0]
 WARN_VERSION_MSG = ' ⚠ [3.0.0 upgrade required](https://github.com/loki-project/loki/releases)'
 
 # Telegram handle of the bot's owner.  This gets used in the bot's welcome message.  If set to None
 # or '' it will not be shown.
-OWNER = 'FIXME'
+TELEGRAM_OWNER = 'FIXME'
+
+# Discord tag of the bot's owner
+DISCORD_OWNER = 'FIXME'
 
 # Extra information to include in the main menu/start message.  Set to None or '' to omit:
 EXTRA = 'This bot is free software available under a GPLv3+ license at: https://github.com/jagerman/loki-sn-bot\n\n'
 
-# Can be set to enable a donation menu + QR code
+# Can be set to enable a donation menu with a wallet address + QR code image filename to upload
 DONATION_ADDR = None
-DONATION_QR_URL = None
+DONATION_IMAGE = None

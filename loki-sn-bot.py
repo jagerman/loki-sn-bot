@@ -4,6 +4,8 @@ import threading
 import time
 import requests
 import traceback
+import signal
+import asyncio
 
 import loki_sn_bot_config as config
 
@@ -11,31 +13,52 @@ import lokisnbot
 lokisnbot.config = config
 from lokisnbot.constants import *
 import lokisnbot.util as util
-import lokisnbot.telegram as tg
+from lokisnbot.telegram import TelegramNetwork
+from lokisnbot.discord import DiscordNetwork
 import lokisnbot.pgsql as pgsql
 from lokisnbot.servicenode import ServiceNode, reward
 #import lokisnbot.discord as dc
 
 if not hasattr(config, 'WELCOME'):
     config.WELCOME = (
-            'Hi!  I can give you loki service node information and send you alerts if the uptime proof for your service node(s) gets too long.  ' +
+            'Hi!  I can give you Loki service node information and send you alerts if the uptime proof for your service node(s) gets too long.  ' +
             'I can also optionally let you know when your service nodes earn a payment and when your service node is nearing expiry.' +
             ('\n\nI am also capable of monitoring testnet service nodes if you send me a pubkey for a service node on the testnet.' if config.TESTNET_NODE_URL else '') +
             ('\n\nI also have a testnet wallet attached: if you need some testnet funds use the testnet faucet menu to have me send some testnet LOKI your way.' if config.TESTNET_WALLET_URL and config.TESTNET_FAUCET_AMOUNT else '') +
-            ('\n\nThis bot is operated by ' + config.OWNER if config.OWNER else '') +
+            ('\n\nThis bot is operated by {owner}' if config.TELEGRAM_OWNER or config.DISCORD_OWNER else '') +
             ('\n\n' + config.EXTRA if config.EXTRA else '')
             )
 
 
 
 
+tg, dc = None, None
 
 
+
+def notify(sn, msg, is_update=True):
+    """Notify based on Telegram/Discord status.  Returns true if at least one notification went out.
+    is_update controls whether this is a status update, in which case extra info (a link to
+    lokiblocks) is added; True by default, should be false for boring notifications like rewards"""
+    global tg, dc
+
+    tgid, dcid = sn['telegram_id'], sn['discord_id']
+    good = 0
+    if tgid:
+        extra = tg.sn_update_extra(sn) if is_update else {}
+        if tg.try_message(tgid, msg, **extra):
+            good += 1
+    if dcid:
+        extra = dc.sn_update_extra(sn) if is_update else {}
+        if dc.try_message(dcid, msg, **extra):
+            good += 1
+
+    return good > 0
 
 
 time_to_die = False
 def loki_updater():
-    global time_to_die
+    global time_to_die, tg, dc
     expected_dereg_height = {}
     last = 0
     while not time_to_die:
@@ -78,8 +101,8 @@ def loki_updater():
                 else:
                     expected_dereg_height[pubkey] = x['registration_height'] + TESTNET_STAKE_BLOCKS
 
-        if not hasattr(tg.updater, 'bot'):
-            print("no bot yet!")
+        if not tg or not tg.ready() or not dc or not dc.ready:
+            print("bots not ready yet!")
             continue
         try:
             cur = pgsql.dict_cursor()
@@ -97,8 +120,8 @@ def loki_updater():
             cur.execute("SELECT users.telegram_id, users.discord_id, service_nodes.* FROM users JOIN service_nodes ON uid = users.id ORDER BY uid")
             for row in cur:
                 sn = ServiceNode(row)
-                if not sn['telegram_id']:
-                    continue  # FIXME
+                if not sn['telegram_id'] and not sn['discord_id']:
+                    continue
                 if sn.testnet and not tsns:
                     continue  # Ignore: testnet node didn't respond
                 uid = sn['uid']
@@ -106,18 +129,13 @@ def loki_updater():
                 pubkey = sn['pubkey']
                 name = sn.alias()
                 netheight = testnet_height if sn.testnet else mainnet_height
-                explorer = util.explorer(testnet=sn.testnet)
-
-                sn_details_buttons = tg.InlineKeyboardMarkup([[
-                    tg.InlineKeyboardButton('SN details', callback_data='sn:{}'.format(sn['id'])),
-                    tg.InlineKeyboardButton(explorer, url='https://{}/service_node/{}'.format(explorer, pubkey))]])
 
                 if not sn.active():
                     if not sn['notified_dereg']:
                         dereg_msg = ('📅 Service node _{}_ reached the end of its registration period and is no longer registered on the network.'.format(name)
                                 if pubkey in expected_dereg_height and 0 < expected_dereg_height[pubkey] <= netheight else
                                 '🛑 *UNEXPECTED DEREGISTRATION!* Service node _{}_ is no longer registered on the network! 😦'.format(name))
-                        if tg.send_message_or_shutup(tg.updater.bot, chatid, dereg_msg, reply_markup=sn_details_buttons):
+                        if notify(row, dereg_msg):
                             sn.update(active=False, notified_dereg=True, complete=False, last_contributions=0, expiry_notified=None)
                     elif sn['active']:
                         sn.update(active=False)
@@ -132,14 +150,10 @@ def loki_updater():
                 if proof_age is not None:
                     if proof_age >= PROOF_AGE_WARNING:
                         if not sn['notified_age'] or proof_age - sn['notified_age'] > PROOF_AGE_REPEAT:
-                            if tg.send_message_or_shutup(tg.updater.bot, chatid,
-                                    prefix+'⚠ *WARNING:* Service node _{}_ last uptime proof is *{}*'.format(name, sn.format_proof_age()),
-                                    reply_markup=sn_details_buttons):
+                            if notify(sn, prefix+'⚠ *WARNING:* Service node _{}_ last uptime proof is *{}*'.format(name, sn.format_proof_age())):
                                 sn.update(notified_age=proof_age)
                     elif sn['notified_age']:
-                        if tg.send_message_or_shutup(tg.updater.bot, chatid,
-                                prefix+'😌 Service node _{}_ last uptime proof received (now *{}*)'.format(name, sn.format_proof_age()),
-                                reply_markup=sn_details_buttons):
+                        if notify(sn, prefix+'😌 Service node _{}_ last uptime proof received (now *{}*)'.format(name, sn.format_proof_age())):
                             sn.update(notified_age=None)
 
                 just_completed = False
@@ -149,16 +163,12 @@ def loki_updater():
                         msg_part_a = ('{} Service node _{}_ is awaiting contributions.' if not sn['last_contributions'] else
                                 '{} Service node _{}_ received a contribution.').format(sn.moon_symbol(pct), name)
 
-                        if tg.send_message_or_shutup(tg.updater.bot, chatid,
-                                prefix + msg_part_a + '  Total contributions: _{:.9f}_ (_{:.1f}%_ of required _{:.9f}_).  Additional contribution required: _{:.9f}_.'.format(
-                                    sn.state('total_contributed')*1e-9, pct, sn.state('staking_requirement')*1e-9, (sn.state('staking_requirement') - sn.state('total_contributed'))*1e-9),
-                                reply_markup=sn_details_buttons):
+                        if notify(sn, prefix + msg_part_a + '  Total contributions: _{:.9f}_ (_{:.1f}%_ of required _{:.9f}_).  Additional contribution required: _{:.9f}_.'.format(
+                                sn.state('total_contributed')*1e-9, pct, sn.state('staking_requirement')*1e-9, (sn.state('staking_requirement') - sn.state('total_contributed'))*1e-9)):
                             sn.update(last_contributions=sn.state('total_contributed'))
 
                     if sn.state('total_contributed') >= sn.state('staking_requirement'):
-                        if tg.send_message_or_shutup(tg.updater.bot, chatid,
-                                prefix+'💚 Service node _{}_ is now fully staked and active!'.format(name),
-                                reply_markup=sn_details_buttons):
+                        if notify(sn, prefix+'💚 Service node _{}_ is now fully staked and active!'.format(name)):
                             sn.update(complete=True)
                         just_completed = True
 
@@ -170,10 +180,8 @@ def loki_updater():
                         if sn['requested_unlock_height'] is not None or sn['unlock_notified']:
                             sn.update(requested_unlock_height=None, unlock_notified=False)
                     elif not sn['unlock_notified']:
-                        if tg.send_message_or_shutup(tg.updater.bot, chatid,
-                                '📆 💔 Service node _{}_ has started a stake unlock.  Stakes will unlock in {} (at block _{}_)'.format(
-                                    name, util.friendly_time((req_height - netheight) * AVERAGE_BLOCK_SECONDS), req_height),
-                                reply_markup=sn_details_buttons):
+                        if notify(sn, prefix+'📆 💔 Service node _{}_ has started a stake unlock.  Stakes will unlock in {} (at block _{}_)'.format(
+                                name, util.friendly_time((req_height - netheight) * AVERAGE_BLOCK_SECONDS), req_height)):
                             sn.update(unlock_notified=True, requested_unlock_height=req_height)
 
 
@@ -181,14 +189,11 @@ def loki_updater():
                 if snver:
                     if config.WARN_VERSION_LESS_THAN and snver < config.WARN_VERSION_LESS_THAN:
                         if not sn['notified_obsolete'] or sn['notified_obsolete'] + 12*60*60 <= now:
-                            if tg.send_message_or_shutup(tg.updater.bot, chatid,
-                                    prefix+'⚠ *WARNING:* Service node _{}_ is running *v{}*\n{}\nIf not upgraded before the fork this service node will deregister!'.format(name, sn.version_str(), config.WARN_VERSION_MSG),
-                                    reply_markup=sn_details_buttons):
+                            if notify(sn, prefix+'⚠ *WARNING:* Service node _{}_ is running *v{}*\n{}\nIf not upgraded before the fork this service node will deregister!'.format(
+                                    name, sn.version_str(), config.WARN_VERSION_MSG)):
                                 sn.update(notified_obsolete=now)
                     elif sn['notified_obsolete']:
-                        if tg.send_message_or_shutup(tg.updater.bot, chatid,
-                                prefix+'💖 Service node _{}_ is now running *v{}*.  Thanks for upgrading!'.format(name, snnver),
-                                reply_markup=sn_details_buttons):
+                        if notify(prefix+'💖 Service node _{}_ is now running *v{}*.  Thanks for upgrading!'.format(name, snnver)):
                             sn.update(notified_obsolete=None)
 
                     update_lv = False
@@ -199,9 +204,7 @@ def loki_updater():
                         elif [0, 0, 0] < snver < sn['last_version']:
                             msg = prefix+'💔 Service node _{}_ *downgraded* to *v{}* (from *v{}*)!'
 
-                        if msg and tg.send_message_or_shutup(tg.updater.bot, chatid,
-                                msg.format(name, ServiceNode.to_version_string(snver), ServiceNode.to_version_string(sn['last_version'])),
-                                reply_markup=sn_details_buttons):
+                        if msg and notify(sn, msg.format(name, ServiceNode.to_version_string(snver), ServiceNode.to_version_string(sn['last_version']))):
                             update_lv = True
                     else:
                         update_lv = True
@@ -212,7 +215,7 @@ def loki_updater():
 
 #                if (snver and snver in ("3.0.0", "3.0.1")) or (snver is None and not sn['notified_obsolete']):
 #                    if not sn['notified_v300'] or sn['notified_v300'] + 60*60 <= now:
-#                        if tg.send_message_or_shutup(tg.updater.bot, chatid,
+#                        if notify(sn,
 #                                '🛑🛑🛑 *WARNING*  Service node _{}_ is running *v3.0.0* or *v3.0.1*, but a critical bug was discovered that will result in deregistrations.  An emergency update '
 #                                'to *v3.0.2* is ready for immediate deployment.  Note that the previous *v3.0.1* release did *NOT* fully correct the problem. '
 #                                'Please go to the Loki Service Nodes group (https://t.me/LokiServiceNodes) for more details.  (And apologies for the notifications, but this was important!)'.format(name)):
@@ -228,10 +231,8 @@ def loki_updater():
                         notify_time = next((int(t*3600) for t in (config.TESTNET_EXPIRY_THRESHOLDS if sn.testnet else config.EXPIRY_THRESHOLDS) if expires_in <= t*3600), None)
                         if notify_time and (not sn['expiry_notified'] or sn['expiry_notified'] > notify_time):
                             hformat = '{:.0f}' if expires_in >= 7200 else '{:.1f}'
-                            if tg.send_message_or_shutup(tg.updater.bot, chatid,
-                                    prefix+('⏱ Service node _{}_ registration expires in about '+hformat+' hour{} (block _{}_)').format(
-                                        name, expires_in/3600, '' if expires_in == 3600 else 's', expires_at),
-                                    reply_markup=sn_details_buttons):
+                            if notify(sn, prefix+('⏱ Service node _{}_ registration expires in about '+hformat+' hour{} (block _{}_)').format(
+                                    name, expires_in/3600, '' if expires_in == 3600 else 's', expires_at)):
                                 sn.update(expiry_notified=notify_time)
                         elif notify_time is None and sn['expiry_notified']:
                             sn.update(expiry_notified=None)
@@ -252,9 +253,8 @@ def loki_updater():
                                         mine += operator_reward
                                     my_rewards.append('*{:.3f} LOKI* (_{}...{}_)'.format(mine, y['address'][0:7], y['address'][-3:]))
 
-                        if tg.send_message_or_shutup(tg.updater.bot, chatid,
-                                prefix+'💰 Service node _{}_ earned a reward of *{:.3f} LOKI* at height *{}*.'.format(name, snreward, lrbh) + (
-                                    '  Your share: ' + ', '.join(my_rewards) if my_rewards else '')):
+                        if notify(sn, prefix+'💰 Service node _{}_ earned a reward of *{:.3f} LOKI* at height *{}*.'.format(name, snreward, lrbh) + (
+                                    '  Your share: ' + ', '.join(my_rewards) if my_rewards else ''), is_update=False):
                             sn.update(last_reward_block_height=lrbh)
                     else:
                         sn.update(last_reward_block_height=lrbh)
@@ -279,11 +279,19 @@ def start_loki_update_thread():
         time.sleep(0.25)
 
 
-def stop_loki_thread(signum, frame):
+def stop_threads(signum, frame):
+    print("Stopping threads and shutting down...")
     global time_to_die, loki_thread
     time_to_die = True
     loki_thread.join()
+    print("Stopped updater thread")
 
+    global tg, dc
+    tg.stop()
+    print("Stopped Telegram")
+
+    print("Stopping Discord")
+    dc.stop()
 
 def main():
     pgsql.connect()
@@ -292,14 +300,23 @@ def main():
 
     print("Starting Telegram bot")
 
-    tg.start_bot(user_sig_handler=stop_loki_thread)
+    global tg, dc
+    tg = TelegramNetwork()
+    dc = DiscordNetwork()
+
+    tg.start()
+    dc.start()
+
+    signal.signal(signal.SIGINT, stop_threads)
+    signal.signal(signal.SIGTERM, stop_threads)
+    signal.signal(signal.SIGABRT, stop_threads)
 
     print("Bot started")
 
-    # Run the bot until you press Ctrl-C or the process receives SIGINT,
-    # SIGTERM or SIGABRT. This should be used most of the time, since
-    # start_polling() is non-blocking and will stop the bot gracefully.
-    tg.updater.idle()
+    pending = asyncio.Task.all_tasks()
+    asyncio.get_event_loop().run_until_complete(asyncio.gather(*pending))
+
+    print("Bot ended")
 
 
 if __name__ == '__main__':

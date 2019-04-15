@@ -1,4 +1,6 @@
 
+import lokisnbot
+
 def friendly_time(seconds):
     val = ''
     if seconds >= 86400:
@@ -23,4 +25,4 @@ def escape_markdown(text):
 
 
 def explorer(testnet=False):
-    return 'lokitestnet.com' if testnet else 'lokiblocks.com'
+    return (lokisnbot.config.TESTNET_EXPLORER or 'lokitestnet.com') if testnet else (lokisnbot.config.EXPLORER or 'lokiblocks.com')

@@ -74,8 +74,9 @@ ALTER SEQUENCE public.service_nodes_id_seq OWNED BY public.service_nodes.id;
 CREATE TABLE public.users (
     id bigint NOT NULL,
     telegram_id bigint,
-    discord_id text,
+    discord_id bigint,
     faucet_last_used bigint,
+    auto_monitor boolean DEFAULT false NOT NULL,
     CONSTRAINT one_chat_id_required CHECK (((telegram_id IS NOT NULL) OR (discord_id IS NOT NULL)))
 );
 
