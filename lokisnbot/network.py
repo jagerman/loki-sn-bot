@@ -76,15 +76,18 @@ class NetworkContext(metaclass=ABCMeta):
         pass
 
 
-    def is_wallet(self, wallet, *, mainnet, testnet, primary=False):
+    def is_wallet(self, wallet, *, mainnet, testnet, primary=False, partial=False):
         """Returns true if the wallet looks like a wallet for mainnet or testnet (depending on the
         given kwargs options).  By default integrated/subaddress wallet addresses are accepted, but
-        this can be disabled using the `primary=True` keyword arg."""
+        this can be disabled using the `primary=True` keyword arg.  If both primary and partial are
+        given, the wallet may be just a primary wallet prefix."""
+        if partial and len(wallet) < lokisnbot.config.PARTIAL_WALLET_MIN_LENGTH:
+            return False
         patterns = []
         if mainnet:
-            patterns += (lokisnbot.config.MAINNET_WALLET,) if primary_only else lokisnbot.config.MAINNET_WALLET_ANY
+            patterns += (lokisnbot.config.PARTIAL_WALLET_MAINNET if partial else lokisnbot.config.MAINNET_WALLET,) if primary else lokisnbot.config.MAINNET_WALLET_ANY
         if testnet:
-            patterns += (lokisnbot.config.TESTNET_WALLET,) if primary_only else lokisnbot.config.TESTNET_WALLET_ANY
+            patterns += (lokisnbot.config.PARTIAL_WALLET_TESTNET if partial else lokisnbot.config.TESTNET_WALLET,) if primary else lokisnbot.config.TESTNET_WALLET_ANY
         return any(re.match(p, wallet) for p in patterns)
 
 

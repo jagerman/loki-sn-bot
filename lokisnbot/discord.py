@@ -18,6 +18,7 @@ from .network import Network, NetworkContext
 uid_cache = {}
 last_pubkeys = {}
 
+message_futures = []
 
 class DiscordContext(NetworkContext):
     def __init__(self, context: commands.Context):
@@ -161,7 +162,11 @@ class DiscordContext(NetworkContext):
 
 
     async def get_response_from_user(self):
-        return await self.context.bot.wait_for('message', check=lambda r: r.author == self.context.author and r.channel == self.context.channel)
+        global message_futures
+        future = asyncio.get_event_loop().create_future()
+        message_futures.append((future, lambda r: r.author == self.context.author and r.channel == self.context.channel))
+        await future
+        return future.result()
 
 
     async def request_sn_field(self, field, pubkey, send_fmt=None, current_fmt=None, success_fmt=None):
@@ -186,7 +191,6 @@ class DiscordContext(NetworkContext):
             msg += '\n\n' + current_fmt.format(sn[field], escaped=self.escape_msg(sn[field]))
         await self.send_reply_async(msg)
         response = await self.get_response_from_user()
-        print("RESPONSE MESSAGE FOR " + pubkey + "/" + field + ": " + response.content)
         sn.update(**{field: response.content})
         self.service_node(sn=sn, reply_text=success_fmt.format(sn.alias()))
 
@@ -246,18 +250,18 @@ class DiscordContext(NetworkContext):
 
     async def ask_wallet(self, wallet : str=None):
         if not wallet:
-            msg = 'You can either send the whole wallet address or, if you prefer, just the first 7 (or more) characters of the wallet address.  To register a wallet, send it to me now.'
+            msg = 'You can either send the whole wallet address or, if you prefer, just the first {} (or more) characters of the wallet address.  To register a wallet, send it to me now.'.format(
+                    lokisnbot.config.PARTIAL_WALLET_MIN_LENGTH)
             await self.send_reply_async(msg)
             response = await self.get_response_from_user()
-            print("RESPONSE WALLET: " + response.content)
             wallet = response.content
 
-        if not self.is_wallet(mainnet=True, testnet=True, primary=True):
+        if not self.is_wallet(wallet, mainnet=True, testnet=True, primary=True, partial=True):
             await self.send_reply_async('That doesn\'t look like a valid primary wallet address!')
             return
 
         pgsql.cursor().execute("INSERT INTO wallet_prefixes (uid, wallet) VALUES (%s, %s) ON CONFLICT DO NOTHING", (self.get_uid(), wallet))
-        return self.wallets_menu('Added {}wallet '+self.i('{}')+'.  I\'ll now calculate your share of shared contribution service node rewards.'.format(
+        return self.wallets_menu(('Added {}wallet '+self.i('{}')+'.  I\'ll now calculate your share of shared contribution service node rewards.').format(
             self.b('testnet')+' ' if wallet[0] == 'T' else '', wallet))
 
 
@@ -280,13 +284,12 @@ class DiscordContext(NetworkContext):
             msg = "So you want some "+self.b('testnet LOKI')+"!  You've come to the right place: just send me your testnet address and I'll send some your way:"
             await self.send_reply_async(msg)
             response = await self.get_response_from_user()
-            print("RESPONSE WALLET: " + response.content)
             wallet = response.content
 
-        if self.is_wallet(mainnet=True, testnet=False):
+        if self.is_wallet(wallet, mainnet=True, testnet=False):
             self.send_reply("🤣 Nice try, but I don't have any mainnet LOKI.  Try again with a "+self.i('testnet')+" wallet address instead")
 
-        elif self.is_wallet(mainnet=False, testnet=True):
+        elif self.is_wallet(wallet, mainnet=False, testnet=True):
             tx = self.send_faucet_tx(wallet)
             if tx:
                 self.send_reply(dead_end=True, message='💸 Sent you {:.9f} testnet LOKI: {}'.format(
@@ -324,7 +327,6 @@ class DiscordNetwork(Network):
             @commands.command()
             async def status(self, ctx):
                 """Shows current Loki network status"""
-                print("STATUS COMMAND")
                 DiscordContext(ctx).status()
 
             if lokisnbot.config.TESTNET_NODE_URL:
@@ -503,6 +505,15 @@ class DiscordNetwork(Network):
                 return
 
             ctx = await self.bot.get_context(message)
+
+            # First check whether this is a response to the bot waiting for input:
+            global message_futures
+            for i, f in enumerate(message_futures):
+                if f[1](message):
+                    f[0].set_result(message)
+                    del message_futures[i]
+                    return
+
             if ctx.command:
                 await self.bot.invoke(ctx)
             else:

@@ -151,12 +151,12 @@ class TelegramContext(NetworkContext):
             return
 
         wallet = self.update.message.text
-        if self.is_wallet(mainnet=True, testnet=False):
+        if self.is_wallet(wallet, mainnet=True, testnet=False):
             self.send_reply("🤣 Nice try, but I don't have any mainnet LOKI.  Send me a "+self.i('testnet')+" wallet address instead (use /start to cancel):",
                     expect_reply=True)
             self.expect('faucet')
 
-        elif self.is_wallet(mainnet=False, testnet=True):
+        elif self.is_wallet(wallet, mainnet=False, testnet=True):
             self.context.bot.send_chat_action(chat_id=self.update.message.chat_id, action=ChatAction.UPLOAD_DOCUMENT)
 
             tx = self.send_faucet_tx(wallet)
@@ -283,9 +283,9 @@ class TelegramContext(NetworkContext):
 
         elif want == 'wallet':
             wallet = self.update.message.text
-            if not self.is_wallet(mainnet=True, testnet=True, primary=True):
-                self.send_reply('That doesn\'t look like a valid primary wallet address.  Send me at least the first 7 characters of your primary wallet address (use /start to cancel):',
-                        expect_reply=True)
+            if not self.is_wallet(wallet, mainnet=True, testnet=True, primary=True, partial=True):
+                self.send_reply('That doesn\'t look like a valid primary wallet address.  Send me at least the first {} characters of your primary wallet address (use /start to cancel):'.format(
+                    lokisnbot.config.PARTIAL_WALLET_MIN_LENGTH), expect_reply=True)
                 return
             self.expect(None)
             pgsql.cursor().execute("INSERT INTO wallet_prefixes (uid, wallet) VALUES (%s, %s) ON CONFLICT DO NOTHING", (uid, wallet))
