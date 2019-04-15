@@ -135,7 +135,7 @@ def loki_updater():
                         dereg_msg = ('📅 Service node _{}_ reached the end of its registration period and is no longer registered on the network.'.format(name)
                                 if pubkey in expected_dereg_height and 0 < expected_dereg_height[pubkey] <= netheight else
                                 '🛑 *UNEXPECTED DEREGISTRATION!* Service node _{}_ is no longer registered on the network! 😦'.format(name))
-                        if notify(row, dereg_msg):
+                        if notify(sn, dereg_msg):
                             sn.update(active=False, notified_dereg=True, complete=False, last_contributions=0, expiry_notified=None)
                     elif sn['active']:
                         sn.update(active=False)
@@ -193,7 +193,7 @@ def loki_updater():
                                     name, sn.version_str(), config.WARN_VERSION_MSG)):
                                 sn.update(notified_obsolete=now)
                     elif sn['notified_obsolete']:
-                        if notify(prefix+'💖 Service node _{}_ is now running *v{}*.  Thanks for upgrading!'.format(name, snnver)):
+                        if notify(sn, prefix+'💖 Service node _{}_ is now running *v{}*.  Thanks for upgrading!'.format(name, snnver)):
                             sn.update(notified_obsolete=None)
 
                     update_lv = False
