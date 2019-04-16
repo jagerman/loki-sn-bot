@@ -132,7 +132,7 @@ class DiscordContext(NetworkContext):
                 if arg < len(last_pks):
                     return last_pks[arg]
             if send_errmsg:
-                self.send_reply("Error: `{}` is not a valid service node pubkey or list index".format(arg))
+                self.send_reply("Error: `{}` is not a valid service node pubkey or list index".format(arg+1))
         elif send_errmsg:
             self.send_reply("Error: `{}` is not a valid service node pubkey".format(arg))
         return None
@@ -195,19 +195,31 @@ class DiscordContext(NetworkContext):
         self.service_node(sn=sn, reply_text=success_fmt.format(sn.alias()))
 
 
-    def set_sn_field(self, pubkey, field, value, success):
-        pubkey = self.pubkey_from_arg(pubkey, send_errmsg=True)
-        if pubkey is None:
-            return
+    def set_sn_field(self, field, pubkey, value, success):
+        if pubkey == 'all':
+            sns = ServiceNode.all(self.get_uid())
+            if not sns:
+                return self.send_reply("Unable to do that: you aren't currently monitoring any service nodes!")
+        else:
+            pubkey = self.pubkey_from_arg(pubkey, send_errmsg=True)
+            if pubkey is None:
+                return
 
-        try:
-            sn = ServiceNode(pubkey=pubkey, uid=self.get_uid())
-        except ValueError:
-            return self.service_node(snid=snid, reply_text="I couldn't find that service node!")
+            try:
+                sn = ServiceNode(pubkey=pubkey, uid=self.get_uid())
+            except ValueError:
+                return self.service_node(snid=snid, reply_text="I couldn't find that service node!")
 
-        sn.update(**{field: value})
+        success_msgs = []
+        for sn in sns:
+            sn.update(**{field: value})
 
-        self.service_node(sn=sn, reply_text=success.format(sn.alias()))
+            success_msgs.append(success.format(sn.alias()))
+
+        if len(sns) == 1:
+            self.service_node(sn=sns[0], reply_text=success.format(sn.alias()))
+        else:
+            self.service_nodes('\n'.join(success_msgs))
 
 
     def wallets_menu(self, reply_text=''):
