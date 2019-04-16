@@ -90,7 +90,11 @@ class TelegramContext(NetworkContext):
 
 
     def is_dm(self):
-        return self.update.message.chat.type == 'private'
+        return (
+            self.update.message.chat.type == 'private' if self.update.message else
+            self.update.callback_query.message.chat.type == 'private' if self.update.callback_query else
+            False  # don't know!
+            )
 
 
     def main_menu(self, reply='', last_button=None, testnet_buttons=False):
