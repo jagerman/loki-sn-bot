@@ -60,6 +60,7 @@ time_to_die = False
 def loki_updater():
     global time_to_die, tg, dc
     expected_dereg_height = {}
+    checked_automon = set()
     last = 0
     while not time_to_die:
         now = time.time()
@@ -101,6 +102,8 @@ def loki_updater():
                 else:
                     expected_dereg_height[pubkey] = x['registration_height'] + TESTNET_STAKE_BLOCKS
 
+        monitoring = {} # uid: set(pubkey, ...)
+
         if not tg or not tg.ready() or not dc or not dc.ready:
             print("bots not ready yet!")
             continue
@@ -112,6 +115,8 @@ def loki_updater():
                 if row[0] not in wallets:
                     wallets[row[0]] = []
                 wallets[row[0]].append(row[1])
+            for uid in wallets:
+                wallets[uid] = tuple(wallets[uid])
 
             mainnet_height = status['height']
             testnet_height = tstatus['height'] if tsns else None
@@ -129,6 +134,9 @@ def loki_updater():
                 pubkey = sn['pubkey']
                 name = sn.alias()
                 netheight = testnet_height if sn.testnet else mainnet_height
+                if uid not in monitoring:
+                    monitoring[uid] = set()
+                monitoring[uid].add(pubkey)
 
                 if not sn.active():
                     if not sn['notified_dereg']:
@@ -246,7 +254,7 @@ def loki_updater():
                         my_rewards = []
                         if sn['uid'] in wallets and len(sn.state('contributors')) > 1:
                             for y in sn.state('contributors'):
-                                if any(y['address'].startswith(x) for x in wallets[sn['uid']]):
+                                if y['address'].startswith(wallets[sn['uid']]):
                                     operator_reward = snreward * sn.operator_fee()
                                     mine = (snreward - operator_reward) * y['amount'] / sn.state('staking_requirement')
                                     if y['address'] == sn.state('operator_address'):
@@ -258,6 +266,36 @@ def loki_updater():
                             sn.update(last_reward_block_height=lrbh)
                     else:
                         sn.update(last_reward_block_height=lrbh)
+
+            # Auto-monitor checking
+            sn_lists = (sns, tsns) if tsns else (sns,)
+            cur.execute("SELECT id, telegram_id, discord_id FROM users WHERE auto_monitor")
+            for row in cur:
+                uid = row[0]
+                if uid not in wallets:
+                    continue
+                if uid not in monitoring:
+                    monitoring[uid] = set()
+                for z in sn_lists:
+                    for pubkey, sn_data in z.items():
+                        if pubkey in checked_automon or pubkey in monitoring[uid]:
+                            continue
+                        if any(c['address'].startswith(wallets[uid]) for c in sn_data['contributors']):
+                            sn = ServiceNode({
+                                'telegram_id': row[1],
+                                'discord_id': row[2],
+                                'pubkey': pubkey,
+                                'uid': uid,
+                                'active': True,
+                                'complete': sn_data['total_contributed'] >= sn_data['staking_requirement'],
+                                'last_reward_block_height': sn_data['last_reward_block_height']
+                            })
+                            sn.insert(exclude=('telegram_id', 'discord_id'))
+                            notify(sn, "{}Now monitoring a new service node of yours on the network: {} {}".format(
+                                '🚧' if sn.testnet else '', sn.status_icon(), sn.alias()))
+
+            # Everything is now checked, so don't bother checking any fully-staked SNs again:
+            checked_automon = set(pubkey for z in sn_lists for pubkey, sn in z.items() if sn['total_contributed'] >= sn['staking_requirement'])
 
 
         except Exception as e:

@@ -478,6 +478,21 @@ class DiscordNetwork(Network):
                 """Looks for any service nodes matching your wallet(s) (registered with `$wallet`) and starts monitoring them"""
                 DiscordContext(ctx).find_unmonitored()
 
+            @commands.command()
+            @dm_only
+            async def automon(self, ctx, enable : str=''):
+                """Enables/disables automatic monitoring for new SNs to which you have contributed; specify "on" or "off" to enable/disable.  No argument shows the current setting."""
+                c = DiscordContext(ctx)
+                if enable:
+                    if enable == 'on':
+                        c.set_user_field('auto_monitor', True)
+                    elif enable == 'off':
+                        c.set_user_field('auto_monitor', False)
+                    else:
+                        c.send_reply("Invalid command; use one of `$automon on`, `$automon off`, or `$automon`")
+                else:
+                    c.send_reply("Auto-monitoring for new SNs is currently: " + self.b("enabled" if c.get_user_field('auto_monitor') else "disabled"))
+
 
         self.bot.add_cog(General())
         self.bot.add_cog(SNCommands())

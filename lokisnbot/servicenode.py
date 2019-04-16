@@ -123,17 +123,19 @@ class ServiceNode:
         del self._data['id']
 
 
-    def insert(self):
+    def insert(self, exclude=set()):
         """Creates a new SN record in the database for this SN.  The SN must have been created with
-        data elements that include only database columns.  After the insertion all values will be
-        update to the just-inserted values as stored in the database (i.e. incorporating any
-        database-level conversions or defaults)"""
+        data elements that include only database columns or else excluded via the `exclude`
+        argument.  After the insertion all values will be update to the just-inserted values as
+        stored in the database (i.e. incorporating any database-level conversions or defaults)"""
         if 'id' in self._data:
             raise RuntimeError("SN is already stored")
         if 'uid' not in self._data or 'pubkey' not in self._data:
             raise RuntimeError("Cannot insert a SN row without a uid and pubkey")
         cols, vals = [], []
         for c, v in self._data.items():
+            if c in exclude:
+                continue
             cols.append(c)
             vals.append(v)
         cols = ', '.join(cols)

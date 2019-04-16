@@ -71,6 +71,23 @@ class NetworkContext(metaclass=ABCMeta):
         raise RuntimeError("base method get_uid should not be called")
 
 
+    def get_user_field(self, field):
+        """Queries and returns the `field` row from the database for the current user"""
+        uid = self.get_uid()
+        cur = pgsql.cursor()
+        cur.execute("SELECT "+field+" FROM users WHERE id = %s", (uid,))
+        return cur.fetchone()[0]
+
+
+    def set_user_field(self, field, value):
+        """Sets the `field` row in the database to the given value.  Returns the value as set in the
+        database (which could be different from the input value if conversion happened)"""
+        uid = self.get_uid()
+        cur = pgsql.cursor()
+        cur.execute("UPDATE users SET "+field+" = %s WHERE id = %s RETURNING "+field, (value, uid))
+        return cur.fetchone()[0]
+
+
     @abstractmethod
     def is_dm(self):
         pass

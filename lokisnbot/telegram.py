@@ -466,7 +466,12 @@ class TelegramContext(NetworkContext):
                 callback_data=tag)])
 
         if wallets:
-            wallets.append([InlineKeyboardButton('Find unmonitored service nodes', callback_data='find_unmonitored')])
+            wallets.append([
+                InlineKeyboardButton('Find unmonitored SNs', callback_data='find_unmonitored'),
+                InlineKeyboardButton('Disable auto-monitoring', callback_data='disable_automon')
+                if self.get_user_field('auto_monitor') else
+                InlineKeyboardButton('Enable auto-monitoring', callback_data='enable_automon'),
+                ])
 
         wallets.append([InlineKeyboardButton('Add a wallet', callback_data='ask_wallet'),
             InlineKeyboardButton('<< Main menu', callback_data='main')])
@@ -521,6 +526,14 @@ class TelegramContext(NetworkContext):
                 '\n'.join('Found and added {} {}.'.format(sn.status_icon(), sn.alias()) for sn in added))
         else:
             return on_none("Didn't find any unmonitored service nodes matching your wallet(s).")
+
+
+    @run_async
+    def set_automon(self, enabled : bool):
+        enabled = self.set_user_field('auto_monitor', enabled)
+        self.wallets_menu(
+                'Automatic monitoring of for service nodes you have contributed to is now ' + self.b(
+                    "enabled" if enabled else "disabled"))
 
 
     @run_async
@@ -600,8 +613,10 @@ class TelegramContext(NetworkContext):
             call = self.find_unmonitored
         elif q == 'find_unmonitored_sn':
             call = lambda: self.find_unmonitored(self.service_nodes_menu)
-        elif q == 'find_unmonitored':
-            call = self.find_unmonitored
+        elif q == 'enable_automon':
+            call = lambda: self.set_automon(True)
+        elif q == 'disable_automon':
+            call = lambda: self.set_automon(False)
         elif q == 'donate':
             call = self.donate
 
