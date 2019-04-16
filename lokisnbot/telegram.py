@@ -178,7 +178,7 @@ class TelegramContext(NetworkContext):
     def service_nodes_menu(self, reply_text=''):
         buttons = []
         uid = self.get_uid()
-        all_sns = ServiceNode.all(uid, sortkey=lambda sn: (sn['testnet'], sn['alias'] is None, sn['alias'] or sn['pubkey']))
+        all_sns = ServiceNode.all(uid)
 
         ncols = 3 if len(all_sns) >= 18 else 2 if len(all_sns) >= 6 else 1
         for sn in all_sns:

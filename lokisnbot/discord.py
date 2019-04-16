@@ -74,7 +74,7 @@ class DiscordContext(NetworkContext):
     def service_nodes(self, reply_text=''):
         global last_pubkeys
         uid = self.get_uid()
-        all_sns = ServiceNode.all(uid, sortkey=lambda sn: (sn['testnet'], sn['alias'] is None, sn['alias'] or sn['pubkey']))
+        all_sns = ServiceNode.all(uid)
 
         last_pubkeys[uid] = []
         if reply_text:

@@ -56,7 +56,7 @@ class ServiceNode:
                     (self.testnet, self._data['id'], self._data['uid']))
 
     @staticmethod
-    def all(uid, sortkey=None):
+    def all(uid, sortkey=lambda sn: (sn['testnet'], sn['alias'] is None, sn['alias'] or sn['pubkey'])):
         cur = pgsql.dict_cursor()
         cur.execute("SELECT * FROM service_nodes WHERE uid = %s", (uid,))
         sns = []
