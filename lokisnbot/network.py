@@ -311,7 +311,7 @@ class NetworkContext(metaclass=ABCMeta):
                         total/COIN, reg_height, ago((height - reg_height) * AVERAGE_BLOCK_SECONDS))
                 reply_text += stakes
                 if len(sn.state('contributors')) > 1:
-                    reply_text += ('Operator fee: '+self.b('{:.1f}%')+'\n').format(sn.operator_fee() * 100)
+                    reply_text += 'Operator fee: '+self.b('{:.1f}%'.format(sn.operator_fee() * 100))+'\n'
                 reply_text += 'Registration expiry: ' + reg_expiry
                 if sn.state('last_reward_block_height') > sn.state('registration_height'):
                     reply_text += 'Last reward at height {} (approx. {})\n'.format(self.b(sn.state('last_reward_block_height')), ago(
@@ -329,10 +329,10 @@ class NetworkContext(metaclass=ABCMeta):
             else:
                 reply_text += 'Status: '+self.b('awaiting contributions')+'\n'
                 contr, req = sn.state('total_contributed'), sn.state('staking_requirement')
-                reply_text += 'Stake: '+self.i('{:.9f}')+' ('+self.i('{:.1f}%')+' of required '+self.i('{:.9f}')+'; additional contribution required: {:.9f})\n'.format(
+                reply_text += ('Stake: '+self.i('{:.9f}')+' ('+self.i('{:.1f}%')+' of required '+self.i('{:.9f}')+'; additional contribution required: {:.9f})\n').format(
                         contr/COIN, contr/req * 100, req/COIN, (req - contr)/COIN)
                 reply_text += stakes
-                reply_text += 'Operator fee: '+self.b('{:.1f}%')+'\n'.format(sn.operator_fee() * 100)
+                reply_text += 'Operator fee: '+self.b('{:.1f}%'.format(sn.operator_fee() * 100))+'\n'
                 reply_text += 'Registration expiry: ' + reg_expiry
 
             if 'id' in sn:

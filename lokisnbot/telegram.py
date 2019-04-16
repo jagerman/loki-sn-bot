@@ -271,6 +271,7 @@ class TelegramContext(NetworkContext):
         if text is None:
             text = self.update.message.text
 
+        uid = self.get_uid()
         want, want_data = self.want()
         if want == 'note':
             self.expect(None)
