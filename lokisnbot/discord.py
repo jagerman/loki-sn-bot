@@ -99,7 +99,7 @@ class DiscordContext(NetworkContext):
 
         last_pubkeys[uid] = []
         height = lokisnbot.network_info['height']
-        if all_sns:
+        if sns:
             msg = self.b('Service node expirations:')+'\n'
             testnet = False
 
