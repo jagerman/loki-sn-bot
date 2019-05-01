@@ -205,9 +205,9 @@ def loki_updater():
                             sn.update(notified_obsolete=None)
 
                     update_lv = False
-                    if sn['last_version']:
+                    if sn['last_version'] and sn['last_version'] > [0, 0, 0]:
                         msg = None
-                        if snver > sn['last_version'] > [0, 0, 0]:
+                        if snver > sn['last_version']:
                             msg = prefix+'💖 Service node _{}_ upgraded to *v{}* (from *v{}*)'
                         elif [0, 0, 0] < snver < sn['last_version']:
                             msg = prefix+'💔 Service node _{}_ *downgraded* to *v{}* (from *v{}*)!'
