@@ -502,8 +502,8 @@ class DiscordNetwork(Network):
                         c.set_user_field('auto_monitor', False)
                     else:
                         c.send_reply("Invalid command; use one of `$automon on`, `$automon off`, or `$automon`")
-                else:
-                    c.send_reply("Auto-monitoring for new SNs is currently: " + self.b("enabled" if c.get_user_field('auto_monitor') else "disabled"))
+                        return
+                c.send_reply("Auto-monitoring for new SNs is currently: " + c.b("enabled" if c.get_user_field('auto_monitor') else "disabled"))
 
 
         self.bot.add_cog(General())
