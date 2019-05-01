@@ -135,9 +135,11 @@ class NetworkContext(metaclass=ABCMeta):
 
     def status(self, testnet=False, **kwargs):
         sns = lokisnbot.testnet_sn_states if testnet else lokisnbot.sn_states
-        active, waiting, infinite, unlocking, old_proof = 0, 0, 0, 0, 0
+        active, waiting, infinite, old_proof = 0, 0, 0, 0
+        unlocking = [0, 0, 0, 0]  # <1 d, <3 days, <1 week, >1 week
         version_counts = {}
         now = int(time.time())
+        h = (lokisnbot.testnet_network_info if testnet else lokisnbot.network_info)['height']
         for sn in sns.values():
             if sn['total_contributed'] < sn['staking_requirement']:
                 waiting += 1
@@ -145,7 +147,8 @@ class NetworkContext(metaclass=ABCMeta):
                 active += 1
             if sn['registration_height'] >= (TESTNET_INFINITE_FROM if testnet else INFINITE_FROM):
                 if sn['requested_unlock_height']:
-                    unlocking += 1
+                    unlock_days = (sn['requested_unlock_height'] - h) // 720
+                    unlocking[0 if unlock_days < 1 else 1 if unlock_days < 3 else 2 if unlock_days < 7 else 3] += 1
                 else:
                     infinite += 1
             if sn['last_uptime_proof'] and now - sn['last_uptime_proof'] > PROOF_AGE_WARNING:
@@ -160,12 +163,12 @@ class NetworkContext(metaclass=ABCMeta):
 
         b = lambda x: self.b(x)
         i = lambda x: self.i(x)
-        h = (lokisnbot.testnet_network_info if testnet else lokisnbot.network_info)['height']
         reply_text = '🚧 ' + b('Testnet') + ' 🚧\n' if testnet else ''
         reply_text += 'Network height: {}\n'.format(b(h));
         reply_text += 'Service nodes: {} {} + {} {}\n'.format(b(active), i('(active)'), b(waiting), i('(awaiting contribution)'))
-        if infinite or unlocking:
-            reply_text += 'Infinite stake SNs: {} {} + {} {}\n'.format(b(infinite), i('(no expiry)'), b(unlocking), i('(unlocking)'))
+        if infinite or any(unlocking):
+            reply_text += 'SNs unlocking: {total} ({n[0]} {u[0]}, {n[1]} {u[1]}, {n[2]} {u[2]}, {n[3]} {u[3]})\n'.format(
+                    total=b(sum(unlocking)), u=[b(u) for u in unlocking], n=[i('<1d:'), i('<3d:'), i('<7d:'), i('≥7d:')])
         reply_text += '{} service node'.format(b(old_proof)) + (' has uptime proof' if old_proof == 1 else 's have uptime proofs') + ' > 1h5m\n';
 
         if len(version_counts) > (1 if None in version_counts else 0):
