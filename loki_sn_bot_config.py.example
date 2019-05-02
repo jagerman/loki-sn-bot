@@ -21,9 +21,9 @@ MAINNET_WALLET = MAINNET_WALLET_ANY[0]
 
 
 TESTNET_WALLET_ANY = (
-        '^T[6-9A-G][1-9A-HJ-NP-Za-km-z]{93}$', # main addr
-        '^T[GHJ-NP-R][1-9A-HJ-NP-Za-km-z]{104}$', # integrated
-        '^T[R-Zab][1-9A-HJ-NP-Za-km-z]{93}$') # subaddress
+        '^T[6-9A-G][1-9A-HJ-NP-Za-km-z]{95}$', # main addr
+        '^T[GHJ-NP-R][1-9A-HJ-NP-Za-km-z]{106}$', # integrated
+        '^T[R-Zab][1-9A-HJ-NP-Za-km-z]{95}$') # subaddress
 TESTNET_WALLET = TESTNET_WALLET_ANY[0]
 
 # The length and patterns for a wallet prefix.  Both the length and the regex much match for the bot
@@ -31,7 +31,7 @@ TESTNET_WALLET = TESTNET_WALLET_ANY[0]
 # here are allowed to under-match).
 PARTIAL_WALLET_MIN_LENGTH = 8
 PARTIAL_WALLET_MAINNET = '^L[4-9A-E][1-9A-HJ-NP-Za-km-z]{0,93}'
-PARTIAL_WALLET_TESTNET = '^T[6-9A-G][1-9A-HJ-NP-Za-km-z]{0,93}'
+PARTIAL_WALLET_TESTNET = '^T[6-9A-G][1-9A-HJ-NP-Za-km-z]{0,95}'
 
 # URL to a loki node's RPC interface.  Should not end in a /.  The node provides all the SN network
 # status.  Note that restarting the node will result in a loss of last uptime proof data: if you
