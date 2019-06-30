@@ -138,12 +138,14 @@ def loki_updater():
                     monitoring[uid] = set()
                 monitoring[uid].add(pubkey)
 
+                prefix = '🚧' if sn.testnet else ''
+
                 if not sn.active():
                     if not sn['notified_dereg']:
                         dereg_msg = ('📅 Service node _{}_ reached the end of its registration period and is no longer registered on the network.'.format(name)
                                 if pubkey in expected_dereg_height and 0 < expected_dereg_height[pubkey] <= netheight else
                                 '🛑 *UNEXPECTED DEREGISTRATION!* Service node _{}_ is no longer registered on the network! 😦'.format(name))
-                        if notify(sn, dereg_msg):
+                        if notify(sn, prefix + dereg_msg):
                             sn.update(active=False, notified_dereg=True, complete=False, last_contributions=0, expiry_notified=None)
                     elif sn['active']:
                         sn.update(active=False)
@@ -152,7 +154,6 @@ def loki_updater():
                 elif sn['notified_dereg'] or not sn['active']:
                     sn.update(active=True, notified_dereg=False)
 
-                prefix = '🚧' if sn.testnet else ''
 
                 proof_age = sn.proof_age()
                 if proof_age is not None:
