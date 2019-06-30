@@ -135,7 +135,7 @@ class NetworkContext(metaclass=ABCMeta):
 
     def status(self, testnet=False, **kwargs):
         sns = lokisnbot.testnet_sn_states if testnet else lokisnbot.sn_states
-        active, waiting, infinite, old_proof = 0, 0, 0, 0
+        active, decomm, waiting, infinite, old_proof = 0, 0, 0, 0, 0
         unlocking = [0, 0, 0, 0]  # <1 d, <3 days, <1 week, >1 week
         version_counts = {}
         now = int(time.time())
@@ -143,8 +143,10 @@ class NetworkContext(metaclass=ABCMeta):
         for sn in sns.values():
             if sn['total_contributed'] < sn['staking_requirement']:
                 waiting += 1
-            else:
+            elif 'active' not in sn or sn['active']:
                 active += 1
+            else:
+                decomm += 1
             if sn['registration_height'] >= (TESTNET_INFINITE_FROM if testnet else INFINITE_FROM):
                 if sn['requested_unlock_height']:
                     unlock_days = (sn['requested_unlock_height'] - h) // 720
@@ -158,14 +160,12 @@ class NetworkContext(metaclass=ABCMeta):
                 version_counts[ver] = 1
             else:
                 version_counts[ver] += 1
-            if ver is None:
-                print("ver is None for {}".format(sn), flush=True)
 
         b = lambda x: self.b(x)
         i = lambda x: self.i(x)
         reply_text = '🚧 ' + b('Testnet') + ' 🚧\n' if testnet else ''
         reply_text += 'Network height: {}\n'.format(b(h));
-        reply_text += 'Service nodes: {} {} + {} {}\n'.format(b(active), i('(active)'), b(waiting), i('(awaiting contribution)'))
+        reply_text += 'Service nodes: {} {} + {} {} + {} {}\n'.format(b(active), i('(active)'), b(decomm), i('(decomm.)'), b(waiting), i('(awaiting stake)'))
         if infinite or any(unlocking):
             reply_text += 'SNs unlocking: {total} ({n[0]} {u[0]}, {n[1]} {u[1]}, {n[2]} {u[2]}, {n[3]} {u[3]})\n'.format(
                     total=b(sum(unlocking)), u=[b(u) for u in unlocking], n=[i('<1d:'), i('<3d:'), i('<7d:'), i('≥7d:')])
@@ -310,8 +310,20 @@ class NetworkContext(metaclass=ABCMeta):
 
             if sn.staked():
                 reg_height = sn.state('registration_height')
-                reply_text += ('Status: '+self.b('active')+'\nStake: '+self.b('{:.9f}')+'\nReg. height: '+self.b('{}')+' (approx. {})\n').format(
+                status = self.b('Active' if sn.active_on_network() else 'DECOMMISSIONED!')
+                reply_text += 'Status: ' + sn.status_icon() + ' ' + status + '\n'
+
+                if sn.active_on_network() and sn.decomm_credit_blocks():
+                    reply_text += 'Earned uptime credit: ' + sn.format_decomm_credit()
+                    if sn.decomm_credit_blocks() < 2*3600 / AVERAGE_BLOCK_SECONDS:
+                        reply_text += ' (min. 2 hours required)'
+                    reply_text += '\n'
+                elif sn.decommissioned():
+                    reply_text += 'Remaining decommssion time: ' + sn.format_decomm_credit() + '\n'
+
+                reply_text += ('Stake: '+self.b('{:.9f}')+'\nReg. height: '+self.b('{}')+' (approx. {})\n').format(
                         total/COIN, reg_height, ago((height - reg_height) * AVERAGE_BLOCK_SECONDS))
+
                 reply_text += stakes
                 if len(sn.state('contributors')) > 1:
                     reply_text += 'Operator fee: '+self.b('{:.1f}%'.format(sn.operator_fee() * 100))+'\n'
@@ -326,11 +338,14 @@ class NetworkContext(metaclass=ABCMeta):
                 # FIXME: this is slightly wrong because it doesn't account for other SNs that may expire
                 # before they earn a reward:
                 blocks_to_go = 1 + sum(1 for sni in sns.values() if
-                        sni['total_contributed'] >= sni['staking_requirement'] and sni['last_reward_block_height'] < lrbh)
+                        ('active' not in sni or sni['active']) and sni['total_contributed'] >= sni['staking_requirement'] and sni['last_reward_block_height'] < lrbh)
 
-                reply_text += 'Next reward in {} blocks (approx. {})\n'.format(self.b(blocks_to_go), friendly_time(blocks_to_go * AVERAGE_BLOCK_SECONDS))
+                if sn.decommissioned():
+                    reply_text += 'Next reward: *never* (currently decommissioned)\n'
+                else:
+                    reply_text += 'Next reward in {} blocks (approx. {})\n'.format(self.b(blocks_to_go), friendly_time(blocks_to_go * AVERAGE_BLOCK_SECONDS))
             else:
-                reply_text += 'Status: '+self.b('awaiting contributions')+'\n'
+                reply_text += 'Status: ' + sn.status_icon + ' ' + self.b('awaiting contributions')+'\n'
                 contr, req = sn.state('total_contributed'), sn.state('staking_requirement')
                 reply_text += ('Stake: '+self.i('{:.9f}')+' ('+self.i('{:.1f}%')+' of required '+self.i('{:.9f}')+'; additional contribution required: {:.9f})\n').format(
                         contr/COIN, contr/req * 100, req/COIN, (req - contr)/COIN)
@@ -469,8 +484,8 @@ class NetworkContext(metaclass=ABCMeta):
                     if not sn.active():
                         summary[-1] += 'Expired/deregistered'
                     else:
-                        summary[-1] += 'Active'
-                        if sn.proof_age() > PROOF_AGE_WARNING:
+                        summary[-1] += 'Active' if sn.active_on_network() else '☣ *DECOMMISSIONED*' if sn.decommissioned() else 'Awaiting registration'
+                        if sn.proof_age() is None or sn.proof_age() > PROOF_AGE_WARNING:
                             summary[-1] += '; ' + self.b('last uptime proof: ' + sn.format_proof_age())
                         else:
                             summary[-1] += '; last uptime proof: ' + sn.format_proof_age()

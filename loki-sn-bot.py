@@ -155,6 +155,20 @@ def loki_updater():
                     sn.update(active=True, notified_dereg=False)
 
 
+                if sn.decommissioned():
+                    if not sn['notified_decomm'] or sn['notified_decomm'] + 60*60 <= now:
+                        decomm_msg = '☣️ *WARNING*: Service node _{}_ has been *DECOMMISSIONED* for missing uptime proofs.'.format(name)
+                        if sn.decomm_credit_blocks():
+                            decomm_msg += '  It has {} to start sending uptime proofs again or else it will be deregistered!'.format(sn.format_decomm_credit())
+                        else:
+                            decomm_msg += '  It has *no* uptime credit left; *deregistration* is imminent!'
+                        if notify(sn, prefix+decomm_msg):
+                            sn.update(notified_decomm=now)
+                elif sn['notified_decomm'] and sn.active_on_network():
+                    if notify(sn, prefix+'😌 Service node _{}_ has been recommissioned and is now active on the network again! 💚'):
+                        sn.update(notified_decomm=None)
+
+
                 proof_age = sn.proof_age()
                 if proof_age is not None:
                     if proof_age >= PROOF_AGE_WARNING:
@@ -164,6 +178,7 @@ def loki_updater():
                     elif sn['notified_age']:
                         if notify(sn, prefix+'😌 Service node _{}_ last uptime proof received (now *{}*)'.format(name, sn.format_proof_age())):
                             sn.update(notified_age=None)
+
 
                 just_completed = False
                 if not sn['complete']:

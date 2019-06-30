@@ -84,6 +84,16 @@ class ServiceNode:
         return self.active() and self._state['total_contributed'] >= self._state['staking_requirement']
 
 
+    def active_on_network(self):
+        """Returns true if this SN is currently active (i.e. staked and (if daemon is v4+) not decommissioned)"""
+        return self.staked() and ('active' not in self._state or self._state['active'])
+
+
+    def decommissioned(self):
+        """Returns true if this SN is decommissioned.  Always returns false before v4."""
+        return self.staked() and not self.active_on_network()
+
+
     def state(self, key):
         return self._state[key] if self._state and key in self._state else None
 
@@ -184,6 +194,27 @@ class ServiceNode:
                 )
 
 
+    def decomm_credit_blocks(self):
+        """Returns the number of blocks of decomm credit remaining (if decommissioned) or available for decomm (if active)."""
+        blocks = None
+        if 'earned_downtime_blocks' in self._state:
+            blocks = self._state['earned_downtime_blocks']
+        if blocks and blocks >= 0:
+            return blocks
+        return None
+
+
+    def format_decomm_credit(self):
+        blocks = self.decomm_credit_blocks()
+        if not blocks:
+            return '*NONE*'
+        seconds = blocks * AVERAGE_BLOCK_SECONDS
+        return '*{}* blocks (about '.format(blocks) + (
+                '{:.1f} hours'.format(seconds / 3600) if seconds > 90*60 else
+                '{:.0f} minutes'.format(seconds / 60)
+                ) + ')'
+
+
     @staticmethod
     def to_version_string(snv):
         """Takes a list like [1,2,3] and returns a string like "1.2.3" """
@@ -261,7 +292,9 @@ class ServiceNode:
             prefix = '🚧'
 
         proof_age = int(time.time() - self._state['last_uptime_proof'])
-        if proof_age >= PROOF_AGE_WARNING:
+        if self.decommissioned():
+            status_icon = '☣'
+        elif proof_age >= PROOF_AGE_WARNING:
             status_icon = '⚠'
         elif lokisnbot.config.WARN_VERSION_LESS_THAN and self.version() < lokisnbot.config.WARN_VERSION_LESS_THAN:
             status_icon = '🔼'

@@ -44,6 +44,7 @@ CREATE TABLE public.service_nodes (
     unlock_notified boolean DEFAULT false NOT NULL,
     notified_obsolete bigint,
     last_version smallint[],
+    notified_decomm bigint,
     CONSTRAINT valid_sn_pubkey CHECK ((pubkey ~ similar_escape('[0-9a-f]{64}'::text, NULL::text)))
 );
 
