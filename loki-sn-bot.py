@@ -221,13 +221,12 @@ def loki_updater():
                         sn.update(last_version=snver)
 
 
-#                if (snver and snver in ("3.0.0", "3.0.1")) or (snver is None and not sn['notified_obsolete']):
-#                    if not sn['notified_v300'] or sn['notified_v300'] + 60*60 <= now:
-#                        if notify(sn,
-#                                '🛑🛑🛑 *WARNING*  Service node _{}_ is running *v3.0.0* or *v3.0.1*, but a critical bug was discovered that will result in deregistrations.  An emergency update '
-#                                'to *v3.0.2* is ready for immediate deployment.  Note that the previous *v3.0.1* release did *NOT* fully correct the problem. '
-#                                'Please go to the Loki Service Nodes group (https://t.me/LokiServiceNodes) for more details.  (And apologies for the notifications, but this was important!)'.format(name)):
-#                            sn.update(notified_v300=now)
+                if (snver and snver in ([3,0,0], [3,0,1], [3,0,2], [3,0,3], [3,0,4], [3,0,5])):
+                    if not sn['notified_v305'] or sn['notified_v305'] + 24*60*60 <= now:
+                        if notify(sn,
+                                '🛑 *WARNING* Service node _{}_ is running a version before *v3.0.6*; a bug has been found (and fixed in *v3.0.6*) that can cause service '
+                                'node deregistration; upgrading to v3.0.6 (now available on github) as soon as possible is strongly recommended.'.format(name)):
+                            sn.update(notified_v305=now)
 
 
                 if sn['expires_soon']:
