@@ -222,7 +222,7 @@ class ServiceNode:
         ver = None
         # 3.0.x fakes its version as 2.3.x before the v11 fork to keep 2.0.x happy (which has a
         # bug requiring major version == 2 for v10 network uptime proofs), so un-fake it:
-        if snv:
+        if snv and snv != [0, 0, 0]:
             if len(snv) == 3 and snv[0] == 2 and snv[1] == 3:
                 ver = "3.0.{}".format(snv[2])
             else:
