@@ -165,7 +165,7 @@ def loki_updater():
                         if notify(sn, prefix+decomm_msg):
                             sn.update(notified_decomm=now)
                 elif sn['notified_decomm'] and sn.active_on_network():
-                    if notify(sn, prefix+'😌 Service node _{}_ has been recommissioned and is now active on the network again! 💚'):
+                    if notify(sn, prefix+'😌 Service node _{}_ has been recommissioned and is now active on the network again! 💚'.format(name)):
                         sn.update(notified_decomm=None)
 
 
