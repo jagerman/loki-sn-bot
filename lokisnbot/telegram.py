@@ -183,6 +183,7 @@ class TelegramContext(NetworkContext):
         buttons = []
         uid = self.get_uid()
         all_sns = ServiceNode.all(uid)
+        any_rewards_enabled = False
 
         ncols = 3 if len(all_sns) >= 18 else 2 if len(all_sns) >= 6 else 1
         for sn in all_sns:
@@ -193,12 +194,18 @@ class TelegramContext(NetworkContext):
                 buttons[-1].append(snbutton)
             else:
                 buttons.append([snbutton])
+            if sn['rewards']:
+                any_rewards_enabled = True
 
         buttons.append([InlineKeyboardButton('Add a service node', callback_data='add_sn'),
-            InlineKeyboardButton('Show expirations', callback_data='sns_expiries')]);
+            InlineKeyboardButton('Show versions & expirations', callback_data='sns_expiries')]);
         buttons.append([
             InlineKeyboardButton('Find unmonitored SNs', callback_data='find_unmonitored_sn'),
-            InlineKeyboardButton('<< Main menu', callback_data='main')])
+            InlineKeyboardButton('Disable reward notifications', callback_data='disable_rewards_all')
+                if any_rewards_enabled else
+                InlineKeyboardButton('Enable reward notifications', callback_data='enable_rewards_all')
+        ])
+        buttons.append([InlineKeyboardButton('<< Main menu', callback_data='main')])
 
         sn_menu = InlineKeyboardMarkup(buttons)
         if reply_text:
@@ -427,7 +434,7 @@ class TelegramContext(NetworkContext):
 
 
     @run_async
-    def enable_reward_notify(self, ):
+    def enable_reward_notify(self):
         self.set_sn_field('rewards', True,
                 "Okay, I'll start sending you block reward notifications for _{}_.")
 
@@ -436,6 +443,32 @@ class TelegramContext(NetworkContext):
     def disable_reward_notify(self):
         self.set_sn_field('rewards', False,
                 "Okay, I'll no longer send you block reward notifications for _{}_.")
+
+
+    @run_async
+    def enable_reward_notify_all(self):
+        uid = self.get_uid()
+        all_sns = ServiceNode.all(uid)
+        enabled_for = []
+        for sn in all_sns:
+            if not sn['rewards']:
+                sn.update(rewards=True)
+                enabled_for.append("_{}_".format(sn.alias()))
+
+        self.service_nodes_menu('Reward notification *enabled* for service nodes {}.'.format(", ".join(enabled_for)))
+
+
+    @run_async
+    def disable_reward_notify_all(self):
+        uid = self.get_uid()
+        all_sns = ServiceNode.all(uid)
+        disabled_for = []
+        for sn in all_sns:
+            if sn['rewards']:
+                sn.update(rewards=False)
+                disabled_for.append("_{}_".format(sn.alias()))
+
+        self.service_nodes_menu('Reward notification *disabled* for service nodes {}.'.format(", ".join(disabled_for)))
 
 
     @run_async
@@ -604,6 +637,10 @@ class TelegramContext(NetworkContext):
             call = self.enable_reward_notify
         elif re.match(r'disable_reward:\d+', q):
             call = self.disable_reward_notify
+        elif q == 'enable_rewards_all':
+            call = self.enable_reward_notify_all
+        elif q == 'disable_rewards_all':
+            call = self.disable_reward_notify_all
         elif re.match(r'enable_expires_soon:\d+', q):
             call = self.enable_expires_soon
         elif re.match(r'disable_expires_soon:\d+', q):
