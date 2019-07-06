@@ -221,11 +221,11 @@ class TelegramContext(NetworkContext):
         sns = ServiceNode.all(uid, sortkey=lambda sn: (sn['testnet'], sn.expiry_block() or float("inf"), sn['alias'] or sn['pubkey']))
 
         height = lokisnbot.network_info['height']
-        msg = self.b('Service node expirations:')+'\n'
+        msg = self.b('Service node versions & expirations:')+'\n'
         testnet = False
         for sn in sns:
             if not testnet and sn['testnet']:
-                msg += '\n'+self.b('Testnet service node expirations:')+'\n'
+                msg += '\n'+self.b('Testnet service node versions & expirations:')+'\n'
                 height = lokisnbot.testnet_network_info['height']
                 testnet = True
 
@@ -233,9 +233,9 @@ class TelegramContext(NetworkContext):
             if not sn.active():
                 msg += 'Expired/deregistered\n'
             elif sn.infinite_stake() and sn.expiry_block() is None:
-                msg += 'Never (infinite stake)\n'
+                msg += '*v{}*; Never (infinite stake)\n'.format(sn.version_str() or 'Unknown')
             else:
-                msg += 'Block _{}_ (_{}_)\n'.format(sn.expiry_block(), friendly_time(sn.expires_in()))
+                msg += '*v{}*; Block _{}_ (_{}_)\n'.format(sn.version_str() or 'Unknown', sn.expiry_block(), friendly_time(sn.expires_in()))
 
         self.service_nodes_menu(reply_text=msg)
 
