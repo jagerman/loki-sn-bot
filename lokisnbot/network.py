@@ -345,7 +345,7 @@ class NetworkContext(metaclass=ABCMeta):
                 else:
                     reply_text += 'Next reward in {} blocks (approx. {})\n'.format(self.b(blocks_to_go), friendly_time(blocks_to_go * AVERAGE_BLOCK_SECONDS))
             else:
-                reply_text += 'Status: ' + sn.status_icon + ' ' + self.b('awaiting contributions')+'\n'
+                reply_text += 'Status: ' + sn.status_icon() + ' ' + self.b('awaiting contributions')+'\n'
                 contr, req = sn.state('total_contributed'), sn.state('staking_requirement')
                 reply_text += ('Stake: '+self.i('{:.9f}')+' ('+self.i('{:.1f}%')+' of required '+self.i('{:.9f}')+'; additional contribution required: {:.9f})\n').format(
                         contr/COIN, contr/req * 100, req/COIN, (req - contr)/COIN)
