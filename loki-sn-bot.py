@@ -217,7 +217,7 @@ def loki_updater():
                                     name, sn.version_str(), config.WARN_VERSION_MSG)):
                                 sn.update(notified_obsolete=now)
                     elif sn['notified_obsolete']:
-                        if notify(sn, prefix+'💖 Service node _{}_ is now running *v{}*.  Thanks for upgrading!'.format(name, snnver)):
+                        if notify(sn, prefix+'💖 Service node _{}_ is now running *v{}*.  Thanks for upgrading!'.format(name, snver)):
                             sn.update(notified_obsolete=None)
 
                     update_lv = False
