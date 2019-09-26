@@ -86,7 +86,7 @@ class DiscordContext(NetworkContext):
 
 
     def start(self):
-        return self.main_menu(lokisnbot.config.WELCOME.format(owner=lokisnbot.config.DISCORD_OWNER), testnet_buttons=True)
+        return self.main_menu(lokisnbot.config.WELCOME.format(owner=lokisnbot.config.DISCORD_OWNER))
 
 
     def service_nodes(self, reply_text=''):
