@@ -468,6 +468,7 @@ class DiscordNetwork(Network):
             @commands.command()
             async def sn(self, ctx, pubkey : str):
                 """Shows details of a service node; specify the index of the last service node list, or a full SN pubkey (if used in a channel, only a pubkey is allowed)"""
+                c = DiscordContext(ctx)
                 pubkey = c.pubkey_from_arg(pubkey, send_errmsg=True)
                 if pubkey:
                     DiscordContext(ctx).service_node(pubkey=pubkey)
