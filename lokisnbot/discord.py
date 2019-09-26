@@ -372,10 +372,11 @@ class DiscordNetwork(Network):
                     """Request some testnet LOKI from the bot"""
                     await DiscordContext(ctx).turn_faucet(wallet)
 
-            @commands.command()
-            async def donate(self, ctx):
-                """Like this bot?  Find out how to donate here"""
-                DiscordContext(ctx).donate()
+            if lokisnbot.config.DONATION_ADDR:
+                @commands.command()
+                async def donate(self, ctx):
+                    """Like this bot?  Find out how to donate here"""
+                    DiscordContext(ctx).donate()
 
         class SNCommands(commands.Cog, name='Service node commands'):
             @commands.command()
