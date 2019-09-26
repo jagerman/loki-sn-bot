@@ -185,7 +185,7 @@ class TelegramContext(NetworkContext):
         all_sns = ServiceNode.all(uid)
         any_rewards_enabled = False
 
-        ncols = 3 if len(all_sns) >= 18 else 2 if len(all_sns) >= 6 else 1
+        ncols = 4 if len(all_sns) > 30 else 3 if len(all_sns) > 16 else 2 if len(all_sns) >= 6 else 1
         for sn in all_sns:
             snbutton = InlineKeyboardButton(
                     sn.status_icon() + ' ' + ('{} ({})'.format(sn.alias(), sn.shortpub()) if sn['alias'] else sn.shortpub()),
