@@ -481,7 +481,7 @@ class DiscordNetwork(Network):
                 if pubkey:
                     pubkey = c.pubkey_from_arg(pubkey, send_errmsg=True)
                     if pubkey:
-                        c.service_node(pubkey=c.pubkey_from_arg(pubkey))
+                        c.service_node(pubkey=pubkey)
                 else:
                     c.service_nodes()
 
