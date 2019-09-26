@@ -40,7 +40,25 @@ class DiscordContext(NetworkContext):
         return escape_markdown(txt)
 
     async def send_reply_async(self, message, **kwargs):
-        await self.context.send(message, **kwargs)
+        more = None
+        if len(message) > 2000:
+            # Discord max message is 2000 (unicode) characters; try to chop up a long message on the
+            # last newline in the 500-2000 character range.  If none is found, try to chop on a
+            # space in that range.  If still not found just hard chop at 2000.
+            for space in ("\n", " "):
+                pos = message.rfind(space, 500, 2000)
+                if pos != -1:
+                    chopped = True
+                    more = message[pos:]
+                    message = message[0:pos-1]
+                    break
+            if more is None:
+                more = message[2000:]
+                message = message[0:2000]
+            await self.context.send(message)
+            await self.send_reply_async(more, **kwargs)
+        else:
+            await self.context.send(message, **kwargs)
 
     def send_reply(self, message, dead_end=False, expect_reply=False, **kwargs):
         asyncio.ensure_future(self.send_reply_async(message, **kwargs))
