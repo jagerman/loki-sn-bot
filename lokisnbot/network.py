@@ -168,7 +168,7 @@ class NetworkContext(metaclass=ABCMeta):
         reply_text += 'Service nodes: {} {} + {} {} + {} {}\n'.format(b(active), i('(active)'), b(decomm), i('(decomm.)'), b(waiting), i('(awaiting stake)'))
         if infinite or any(unlocking):
             reply_text += 'SNs unlocking: {total} ({n[0]} {u[0]}, {n[1]} {u[1]}, {n[2]} {u[2]}, {n[3]} {u[3]})\n'.format(
-                    total=b(sum(unlocking)), u=[b(u) for u in unlocking], n=[i('<1d:'), i('<3d:'), i('<7d:'), i('≥7d:')])
+                    total=b(sum(unlocking)), u=[b(u) for u in unlocking], n=[i('<1d:'), i('1-3d:'), i('3-7d:'), i('≥7d:')])
         reply_text += '{} service node'.format(b(old_proof)) + (' has uptime proof' if old_proof == 1 else 's have uptime proofs') + ' > 1h5m\n';
 
         if len(version_counts) > (1 if None in version_counts else 0):
