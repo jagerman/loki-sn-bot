@@ -175,7 +175,7 @@ class DiscordContext(NetworkContext):
             except ValueError:
                 self.send_reply("I couldn't find service node {}, or I wasn't monitoring it.  Please check the public service node id and try again".format(pubkey))
             sn.delete()
-            self.send_reply("Okay, I'm not longer monitoring service node " + (
+            self.send_reply("Okay, I'm no longer monitoring service node " + (
                 "{} ({})".format(self.i(sn['alias']), self.i(sn['pubkey'])) if sn['alias'] else self.i(sn['pubkey'])) + " for you.")
 
 

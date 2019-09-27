@@ -376,7 +376,7 @@ class TelegramContext(NetworkContext):
         except ValueError:
             return self.service_nodes_menu("I couldn't find that service node; please try again")
         sn.delete()
-        msg = "Okay, I'm not longer monitoring service node " + (
+        msg = "Okay, I'm no longer monitoring service node " + (
                 "_{}_ (_{}_)".format(sn['alias'], sn['pubkey']) if sn['alias'] else "_{}_".format(sn['pubkey'])) + " for you."
         return self.service_nodes_menu(msg)
 
