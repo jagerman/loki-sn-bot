@@ -108,6 +108,29 @@ class NetworkContext(metaclass=ABCMeta):
         return any(re.match(p, wallet) for p in patterns)
 
 
+    def breakup_long_message(self, msg, maxlen):
+        msgs = []
+        while len(msg) > maxlen:
+            # Discord/Telegram max message is 2000/4096 (unicode) characters; try to chop up a long message on the
+            # last "space" in the last 3/4 of that (500-2000 or 1024-4096 character range).  First
+            # we look for a double-newline, then if not found a single newline, then if not found a
+            # space.  If still not found just hard chop at the max.
+            chopped = False
+            for space in ("\n\n", "\n", " "):
+                pos = msg.rfind(space, maxlen//4, maxlen)
+                if pos != -1:
+                    chopped = True
+                    msgs.append(msg[0:pos-1])
+                    msg = msg[pos:]
+                    break
+            if not chopped:
+                msgs.append(msg[0:maxlen])
+                msg = msg[maxlen:]
+        if len(msg) > 0:
+            msgs.append(msg)
+        return msgs
+
+
     def main_menu(self, reply, **kwargs):
         if reply:
             reply += '\n\n'
