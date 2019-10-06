@@ -322,6 +322,8 @@ class TelegramContext(NetworkContext):
             self.expect(None)
         elif add_sn:
             self.send_reply(message="That doesn't look like a valid service node public key; please check the key(s) and try again: (use /start to cancel)", expect_reply=True)
+        elif text == 'myid':
+            self.send_reply(message='Your telegram id is: {}; your internal LokiSNBot id is {}'.format(self.update.effective_user.id, uid))
         else:
             self.send_reply(dead_end=True, message='Sorry, I didn\'t understand your message.')
 
