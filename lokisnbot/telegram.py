@@ -201,7 +201,7 @@ class TelegramContext(NetworkContext):
                 any_rewards_enabled = True
 
         buttons.append([InlineKeyboardButton('Add a service node', callback_data='add_sn'),
-            InlineKeyboardButton('Show versions & expirations', callback_data='sns_expiries')]);
+            InlineKeyboardButton('Show versions/expiries/proofs', callback_data='sns_expiries')]);
         buttons.append([
             InlineKeyboardButton('Find unmonitored SNs', callback_data='find_unmonitored_sn'),
             InlineKeyboardButton('Disable reward notifications', callback_data='disable_rewards_all')
@@ -224,21 +224,26 @@ class TelegramContext(NetworkContext):
         sns = ServiceNode.all(uid, sortkey=lambda sn: (sn['testnet'], sn.expiry_block() or float("inf"), sn['alias'] or sn['pubkey']))
 
         height = lokisnbot.network_info['height']
-        msg = self.b('Service node versions & expirations:')+'\n'
+        msg = self.b('Service node versions, expirations & proofs:')+'\n'
         testnet = False
         for sn in sns:
             if not testnet and sn['testnet']:
-                msg += '\n'+self.b('Testnet service node versions & expirations:')+'\n'
+                msg += '\n'+self.b('Testnet service node versions, expirations & proofs:')+'\n'
                 height = lokisnbot.testnet_network_info['height']
                 testnet = True
 
             msg += '{} {}: '.format(sn.status_icon(), sn.alias())
             if not sn.active():
                 msg += 'Expired/deregistered\n'
-            elif sn.infinite_stake() and sn.expiry_block() is None:
-                msg += '*v{}*; Never (infinite stake)\n'.format(sn.version_str() or 'Unknown')
             else:
-                msg += '*v{}*; Block _{}_ (_{}_)\n'.format(sn.version_str() or 'Unknown', sn.expiry_block(), friendly_time(sn.expires_in()))
+                msg += '*v{}*'.format(sn.version_str() or 'Unknown')
+                if sn.infinite_stake() and sn.expiry_block() is None:
+                    msg += '; never (∞ stake)'
+                else:
+                    msg += '; block _{}_ (_{}_)'.format(sn.expiry_block(), friendly_time(sn.expires_in()))
+
+                msg += '; ' + sn.format_proof_age()
+                msg += '\n'
 
         self.service_nodes_menu(reply_text=msg)
 
