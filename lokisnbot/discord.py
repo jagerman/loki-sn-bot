@@ -124,17 +124,24 @@ class DiscordContext(NetworkContext):
 
     def pubkey_from_arg(self, arg, send_errmsg=False):
         global last_pubkeys
-        if re.search('^[0-9a-f]{64}$', arg):
+        if re.search('^[0-9a-f]{64}$', arg):  # Full pubkey
             return arg
         if self.is_dm():
             uid = self.get_uid()
             last_pks = last_pubkeys[uid] if uid in last_pubkeys else []
+            # Plain number: an index from the last time we gave a pubkey list:
             if last_pks and re.search(r'^[1-9]\d*$', arg):
-                arg = int(arg) - 1
-                if arg < len(last_pks):
-                    return last_pks[arg]
+                argi = int(arg) - 1
+                if argi < len(last_pks):
+                    return last_pks[argi]
+
+            # if the user has a SN with an exact alias match then use it
+            pk = ServiceNode.pubkey_from_alias(uid, arg)
+            if pk:
+                return pk
+
             if send_errmsg:
-                self.send_reply("Error: `{}` is not a valid service node pubkey or list index".format(arg+1))
+                self.send_reply("Error: `{}` is not a valid service node pubkey, list index, or alias".format(arg))
         elif send_errmsg:
             self.send_reply("Error: `{}` is not a valid service node pubkey".format(arg))
         return None

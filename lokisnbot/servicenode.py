@@ -67,6 +67,14 @@ class ServiceNode:
         return sns
 
 
+    @staticmethod
+    def pubkey_from_alias(uid, alias):
+        cur = pgsql.dict_cursor()
+        cur.execute("SELECT pubkey FROM service_nodes WHERE uid = %s AND alias = %s", (uid,alias))
+        data = cur.fetchone()
+        return data[0] if data else None
+
+
     def __getitem__(self, key):
         return self._data[key]
 
