@@ -208,7 +208,7 @@ class DiscordContext(NetworkContext):
                 return
 
             try:
-                sn = ServiceNode(pubkey=pubkey, uid=self.get_uid())
+                sns = [ServiceNode(pubkey=pubkey, uid=self.get_uid())]
             except ValueError:
                 return self.service_node(snid=snid, reply_text="I couldn't find that service node!")
 
