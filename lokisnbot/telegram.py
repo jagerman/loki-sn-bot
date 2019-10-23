@@ -189,6 +189,7 @@ class TelegramContext(NetworkContext):
         any_rewards_enabled = False
 
         ncols = 4 if len(all_sns) > 30 else 3 if len(all_sns) > 16 else 2 if len(all_sns) >= 6 else 1
+        count = 0
         for sn in all_sns:
             snbutton = InlineKeyboardButton(
                     sn.status_icon() + ' ' + ('{} ({})'.format(sn.alias(), sn.shortpub()) if sn['alias'] else sn.shortpub()),
@@ -199,6 +200,9 @@ class TelegramContext(NetworkContext):
                 buttons.append([snbutton])
             if sn['rewards']:
                 any_rewards_enabled = True
+            count += 1
+            if count >= 92:
+                break # Telegram only allows up to 100 buttons and we want to allow the ones below
 
         buttons.append([InlineKeyboardButton('Add a service node', callback_data='add_sn'),
             InlineKeyboardButton('Show versions/expiries/proofs', callback_data='sns_expiries')]);
