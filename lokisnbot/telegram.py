@@ -37,7 +37,7 @@ class TelegramContext(NetworkContext):
         return escape_markdown(txt)
 
 
-    def send_reply(self, full_message, reply_markup=None, dead_end=False, expect_reply=False):
+    def send_reply(self, message, reply_markup=None, dead_end=False, expect_reply=False):
         """Sends a reply.  reply_markup can be used to append buttons; dead_end can be used instead of
         reply_markup to add just a '<< Main menu' button; expect_reply puts the user into reply mode (only
         has effect if reply_markup and dead_end are omitted)."""
@@ -48,18 +48,18 @@ class TelegramContext(NetworkContext):
                 reply_markup = ForceReply()
 
         if self.update.message:
-            send = lambda message, rmarkup: self.update.message.reply_markdown(message,
+            send = lambda msg, rmarkup: self.update.message.reply_markdown(msg,
                     reply_markup=rmarkup,
                     disable_web_page_preview=True)
         else:
             chat_id = self.update.callback_query.message.chat_id
-            send = lambda message, rmarkup: self.context.bot.send_message(
+            send = lambda msg, rmarkup: self.context.bot.send_message(
                 chat_id=chat_id,
-                text=message, parse_mode=ParseMode.MARKDOWN,
+                text=msg, parse_mode=ParseMode.MARKDOWN,
                 reply_markup=rmarkup,
                 disable_web_page_preview=True)
 
-        msgs = self.breakup_long_message(full_message, 4096)
+        msgs = self.breakup_long_message(message, 4096)
         for msg in msgs[:-1]:
             send(msg, None)
         send(msgs[-1], reply_markup)
