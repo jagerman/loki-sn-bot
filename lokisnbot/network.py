@@ -231,10 +231,10 @@ class NetworkContext(metaclass=ABCMeta):
 
         global last_faucet_use
         now = int(time.time())
-        if last_used and last_used > now - 86400:
+        if last_used and last_used > now - 3600:
             self.send_reply(dead_end=True,
                     message="🤔 It appears that you have already used the faucet recently.  You need to wait another {} before you can use it again.".format(
-                        friendly_time(86400 - (now - last_used))))
+                        friendly_time(3600 - (now - last_used))))
             return True
         elif last_faucet_use > now - 120:
             self.send_reply(dead_end=True,
