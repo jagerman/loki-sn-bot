@@ -211,7 +211,7 @@ def loki_updater():
 
                 snver = sn.version()
                 if snver and any(snver):
-                    if config.WARN_VERSION_LESS_THAN and snver < config.WARN_VERSION_LESS_THAN:
+                    if config.WARN_VERSION_MSG and config.WARN_VERSION_LESS_THAN and snver < config.WARN_VERSION_LESS_THAN:
                         if not sn['notified_obsolete'] or sn['notified_obsolete'] + 24*60*60 <= now:
                             if notify(sn, prefix+'⚠ *WARNING:* Service node _{}_ is running *v{}*\n{}\nIf not upgraded before the fork this service node will deregister!'.format(
                                     name, sn.version_str(), config.WARN_VERSION_MSG)):

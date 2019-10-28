@@ -309,7 +309,7 @@ class NetworkContext(metaclass=ABCMeta):
 
             ver, verstr = sn.version(), sn.version_str()
             reply_text += 'Service node version: ' + (self.b(verstr) if verstr else 'unknown')
-            if lokisnbot.config.WARN_VERSION_LESS_THAN and ver and ver < lokisnbot.config.WARN_VERSION_LESS_THAN:
+            if lokisnbot.config.WARN_VERSION_MSG and lokisnbot.config.WARN_VERSION_LESS_THAN and ver and ver < lokisnbot.config.WARN_VERSION_LESS_THAN:
                 reply_text += ' ' + lokisnbot.config.WARN_VERSION_MSG
             reply_text += '\n'
 
