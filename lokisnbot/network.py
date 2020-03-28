@@ -8,7 +8,7 @@ import lokisnbot
 from . import pgsql
 from .constants import *
 from .util import friendly_time, ago, explorer, escape_markdown
-from .servicenode import ServiceNode, lsr
+from .servicenode import ServiceNode, lsr, reward
 
 last_faucet_use = 0
 
@@ -199,7 +199,7 @@ class NetworkContext(metaclass=ABCMeta):
                     ('{} '+i('[{}]')).format(b(v) if v else i("unknown"), version_counts[v])
                     for v in sorted(version_counts.keys(), key=lambda x: x or "0.0.0", reverse=True)) + '\n'
 
-        snbr = 0.5 * (28 + 100 * 2**(-h/64800))
+        snbr = reward(h)  # 0.5 * (28 + 100 * 2**(-h/64800))
         reply_text += 'Current SN stake requirement: {} LOKI\n'.format(b('{:.2f}'.format(lsr(h, testnet=testnet))))
         reply_text += 'Current SN reward: {} LOKI\n'.format(b('{:.4f}'.format(snbr)))
 
@@ -304,6 +304,7 @@ class NetworkContext(metaclass=ABCMeta):
             height = (lokisnbot.testnet_network_info if sn.testnet else lokisnbot.network_info)['height']
 
             reply_text += 'Public key: {}\n'.format(self.i(pubkey))
+            reply_text += 'Lokinet address: {}\n'.format(self.i(sn.lokinet_snode_addr()))
 
             reply_text += 'Last uptime proof: ' + sn.format_proof_age() + '\n'
 
@@ -335,6 +336,8 @@ class NetworkContext(metaclass=ABCMeta):
                 reg_height = sn.state('registration_height')
                 status = self.b('Active' if sn.active_on_network() else 'DECOMMISSIONED!')
                 reply_text += 'Status: ' + sn.status_icon() + ' ' + status + '\n'
+
+                reply_text += 'Public IP: ' + self.b(sn.state('public_ip')) + '\n'
 
                 if sn.active_on_network() and sn.decomm_credit_blocks():
                     reply_text += 'Earned uptime credit: ' + sn.format_decomm_credit()

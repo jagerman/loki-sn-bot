@@ -14,7 +14,10 @@ def lsr(h, testnet=False):
         return 10000 + 35000 * 2**((101250-h)/129600.)
 
 def reward(h):
-    return 14 + 50 * 2**(-h/64800)
+    return 16.5
+    #return 14 + 50 * 2**(-h/64800)
+
+base32z_dict = 'ybndrfg8ejkmcpqxot1uwisza345h769'
 
 class ServiceNode:
     _data = None
@@ -178,6 +181,28 @@ class ServiceNode:
         return self._state['portions_for_operator'] / 18446744073709551612. if self.active() else None
 
 
+    def lokinet_snode_addr(self):
+        """Returns the lokinet snode address"""
+        if 'pubkey_ed25519' not in self._state:
+            return None
+        pk_hex = self._state['pubkey_ed25519']
+        if not pk_hex or len(pk_hex) != 64:
+            return None
+        bits = 0
+        val = 0
+        result = ''
+        for x in pk_hex:
+            bits += 4
+            val = (val << 4) + int(x, 16)
+            if bits >= 5:
+                bits -= 5
+                v = val >> bits
+                val &= (1 << bits) - 1
+                result += base32z_dict[v]
+        result += base32z_dict[val << (5 - bits)]
+        return result + ".snode"
+
+
     def proof_age(self):
         lup = None
         if 'last_uptime_proof' in self._state:
@@ -304,7 +329,8 @@ class ServiceNode:
             status_icon = '☣'
         elif proof_age >= PROOF_AGE_WARNING:
             status_icon = '⚠'
-        elif lokisnbot.config.WARN_VERSION_LESS_THAN and self.version() < lokisnbot.config.WARN_VERSION_LESS_THAN:
+        elif ((lokisnbot.config.WARN_VERSION_LESS_THAN and self.version() < lokisnbot.config.WARN_VERSION_LESS_THAN)
+                or (lokisnbot.config.LATEST_VERSION and self.version() < lokisnbot.config.LATEST_VERSION)):
             status_icon = '🔼'
         elif self._state['total_contributed'] < self._state['staking_requirement']:
             status_icon = self.moon_symbol()
