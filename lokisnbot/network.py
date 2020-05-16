@@ -228,18 +228,22 @@ class NetworkContext(metaclass=ABCMeta):
         cur = pgsql.cursor()
         cur.execute("SELECT faucet_last_used FROM users WHERE id = %s", (self.get_uid(),))
         last_used = cur.fetchone()[0]
+        if last_used is None:
+            last_used = 0
 
         global last_faucet_use
         now = int(time.time())
-        if last_used and last_used > now - 3600:
+        global_wait = (last_faucet_use - now) + lokisnbot.config.TESTNET_FAUCET_WAIT_GLOBAL
+        user_wait = (last_used - now) + lokisnbot.config.TESTNET_FAUCET_WAIT_USER
+        if global_wait > 0:
             self.send_reply(dead_end=True,
                     message="🤔 It appears that you have already used the faucet recently.  You need to wait another {} before you can use it again.".format(
-                        friendly_time(3600 - (now - last_used))))
+                        friendly_time(global_wait)))
             return True
-        elif last_faucet_use > now - 120:
+        elif user_wait > 0:
             self.send_reply(dead_end=True,
                     message="🤔 The faucet has been used by someone else in the last 2 minutes.  You need to wait another {} before you can use it.".format(
-                        friendly_time(120 - (now - last_faucet_use))))
+                        friendly_time(user_wait)))
             return True
         return False
 
@@ -253,7 +257,7 @@ class NetworkContext(metaclass=ABCMeta):
                 "method": "transfer",
                 "params": {
                     "destinations": [{"amount": lokisnbot.config.TESTNET_FAUCET_AMOUNT, "address": wallet}],
-                    "priority": 1,
+                    "priority": 5,
                     }
                 }).json()
         except Exception as e:

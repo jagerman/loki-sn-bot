@@ -33,12 +33,7 @@ PARTIAL_WALLET_MIN_LENGTH = 8
 PARTIAL_WALLET_MAINNET = '^L[4-9A-E][1-9A-HJ-NP-Za-km-z]{0,93}'
 PARTIAL_WALLET_TESTNET = '^T[6-9A-G][1-9A-HJ-NP-Za-km-z]{0,95}'
 
-# URL to a loki node's RPC interface.  Should not end in a /.  The node provides all the SN network
-# status.  Note that restarting the node will result in a loss of last uptime proof data: if you
-# need to restart the node you may want to temporarily switch this to some other, public node for a
-# couple hours.  (Restarting the bot, on the other hand, won't reset anything, so changing this,
-# restarting the bot, then changing back after 2 hours and restarting again is perfectly fine and
-# won't miss any updates).
+# URL to a loki node's RPC interface.  Should not end in a /.
 NODE_URL = 'http://localhost:22023'
 
 # If set to a URL, the bot can also report about the testnet (if you want *only* testnet, use the
@@ -54,6 +49,12 @@ TESTNET_WALLET_URL = None
 # How much to send users who request from the faucet.  Can be requested once/24h.  (Only applies if
 # TESTNET_WALLET_URL is set).  The value is in atomic units.
 TESTNET_FAUCET_AMOUNT = 202000000000
+
+# The amount of time (in seconds) the same user has to wait before using the faucet again
+TESTNET_FAUCET_WAIT_USER = 60*60
+# The amount of time (in seconds) anyone has to wait between using the faucet again (to prevent
+# multi-user faucet spamming)
+TESTNET_FAUCET_WAIT_GLOBAL = 60
 
 # domain name of the block explorer
 EXPLORER = 'lokiblocks.com'
