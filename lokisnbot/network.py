@@ -235,15 +235,15 @@ class NetworkContext(metaclass=ABCMeta):
         now = int(time.time())
         global_wait = (last_faucet_use - now) + lokisnbot.config.TESTNET_FAUCET_WAIT_GLOBAL
         user_wait = (last_used - now) + lokisnbot.config.TESTNET_FAUCET_WAIT_USER
-        if global_wait > 0:
+        if user_wait > 0:
             self.send_reply(dead_end=True,
                     message="🤔 It appears that you have already used the faucet recently.  You need to wait another {} before you can use it again.".format(
-                        friendly_time(global_wait)))
-            return True
-        elif user_wait > 0:
-            self.send_reply(dead_end=True,
-                    message="🤔 The faucet has been used by someone else in the last 2 minutes.  You need to wait another {} before you can use it.".format(
                         friendly_time(user_wait)))
+            return True
+        elif glocal_wait > 0:
+            self.send_reply(dead_end=True,
+                    message="🤔 The faucet has been used by someone else recently.  You need to wait another {} before you can use it.".format(
+                        friendly_time(global_wait)))
             return True
         return False
 
