@@ -240,7 +240,7 @@ class NetworkContext(metaclass=ABCMeta):
                     message="🤔 It appears that you have already used the faucet recently.  You need to wait another {} before you can use it again.".format(
                         friendly_time(user_wait)))
             return True
-        elif glocal_wait > 0:
+        elif global_wait > 0:
             self.send_reply(dead_end=True,
                     message="🤔 The faucet has been used by someone else recently.  You need to wait another {} before you can use it.".format(
                         friendly_time(global_wait)))
