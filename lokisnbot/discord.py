@@ -421,7 +421,7 @@ class DiscordNetwork(Network):
             @commands.command()
             @dm_only
             async def rewards(self, ctx, pubkey : str):
-                """Enables reward notification for a service node"""
+                """Enables reward notification for a service node (or all monitored SNs if you specify 'all')"""
                 c = DiscordContext(ctx)
                 c.set_sn_field('rewards', pubkey, True,
                         "Okay, I'll start sending you block reward notifications for _{}_.")
@@ -429,7 +429,7 @@ class DiscordNetwork(Network):
             @commands.command()
             @dm_only
             async def norewards(self, ctx, pubkey : str):
-                """Disables reward notifications for a service node"""
+                """Disables reward notifications for a service node (or all monitored SNs if you specify 'all')"""
                 c = DiscordContext(ctx)
                 c.set_sn_field('rewards', pubkey, False,
                         "Okay, I'll no longer send you block reward notifications for _{}_.")
