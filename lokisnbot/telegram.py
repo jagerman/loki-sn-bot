@@ -16,6 +16,16 @@ from .servicenode import ServiceNode
 from .network import Network, NetworkContext
 
 
+
+def common_symbol(all_sns):
+    more_sym = ''
+    for sn in all_sns:
+        for sym in sn.status_icon():
+            if sym not in more_sym:
+                more_sym += sym
+    return more_sym
+
+
 class TelegramContext(NetworkContext):
     def __init__(self, update: Update, context: CallbackContext):
         self.update = update
@@ -179,18 +189,37 @@ class TelegramContext(NetworkContext):
             self.expect('faucet')
 
 
-
-
     @run_async
-    def service_nodes_menu(self, reply_text=''):
+    def service_nodes_menu(self, reply_text='', page=0):
         buttons = []
         uid = self.get_uid()
         all_sns = ServiceNode.all(uid)
         any_rewards_enabled = False
 
-        ncols = 4 if len(all_sns) > 30 else 3 if len(all_sns) > 16 else 2 if len(all_sns) >= 6 else 1
-        count = 0
-        for sn in all_sns:
+        ncols = 3 if len(all_sns) > 16 else 2 if len(all_sns) >= 6 else 1
+
+        # If we have over 60 then starting paging the results.  (We could technically show up to 95
+        # because Telegram allows 100 buttons, but that is really hard to read with tiny buttons or
+        # a huge long list).
+        #
+        # If we are going to page, then we change sort order to put everything that *isn't* in good
+        # status first, then we put "<< + xx more" and/or "+ xx more >>" buttons.
+        if len(all_sns) > 60:
+            max_page = (len(all_sns) + 59) // 60 - 1
+            all_sns.sort(key=lambda sn: 0 if sn.status_icon()[-1] != '💚' else 1)
+        else:
+            max_page = 0
+
+        if page > max_page:
+            page = 0
+
+        prev_button = None
+        if page > 0:
+            more_sym = common_symbol(all_sns[0:60*page])
+            prev_button = InlineKeyboardButton("<< {} + {} more".format(more_sym, 60*page), callback_data='sns_page{}'.format(page-1))
+            all_sns = all_sns[60*page:]
+
+        for sn in all_sns[0:60]:
             snbutton = InlineKeyboardButton(
                     sn.status_icon() + ' ' + ('{} ({})'.format(sn.alias(), sn.shortpub()) if sn['alias'] else sn.shortpub()),
                     callback_data='sn:{}'.format(sn['id']))
@@ -200,9 +229,15 @@ class TelegramContext(NetworkContext):
                 buttons.append([snbutton])
             if sn['rewards']:
                 any_rewards_enabled = True
-            count += 1
-            if count >= 92:
-                break # Telegram only allows up to 100 buttons and we want to allow the ones below
+
+        if prev_button:
+            buttons.append([prev_button])
+        if max_page > page:
+            more_sym = common_symbol(all_sns[60:])
+            next_button = InlineKeyboardButton("{} + {} more >>".format(more_sym, len(all_sns)-60), callback_data='sns_page{}'.format(page+1))
+            if not prev_button:
+                buttons.append([])
+            buttons[-1].append(next_button)
 
         buttons.append([InlineKeyboardButton('Add a service node', callback_data='add_sn'),
             InlineKeyboardButton('Show versions/expiries/proofs', callback_data='sns_expiries')]);
@@ -620,6 +655,8 @@ class TelegramContext(NetworkContext):
             call = self.start
         elif q == 'sns':
             call = self.service_nodes_menu
+        elif (match := re.match(r'sns_page(\d)', q)):
+            call = lambda: self.service_nodes_menu(page=int(match[1]))
         elif q == 'sns_expiries':
             call = self.service_nodes_expiries
         elif q == 'status':
