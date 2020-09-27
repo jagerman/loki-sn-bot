@@ -579,7 +579,7 @@ class DiscordNetwork(Network):
         try:
             future.result()
         except Exception as e:
-            print("Sending to user {} failed: {}".format(chat_id, e))
+            print("Sending to user {} failed: {}".format(chatid, e))
             return False
         return True
 
