@@ -726,8 +726,8 @@ class TelegramNetwork(Network):
         try:
             self.updater.bot.send_message(chatid, message, parse_mode=ParseMode.MARKDOWN, reply_markup=reply_markup)
         except TelegramError as e:
-            if 'bot was blocked by the user' in e.message:
-                print("Telegram user {} blocked me; removing them from SN monitoring ({})".format(chatid, e), flush=True)
+            if any(x in e.message for x in ('bot was blocked by the user', 'user is deactivated')):
+                print("Telegram user {} blocked me or is no longer active; removing them from SN monitoring ({})".format(chatid, e), flush=True)
 
                 pgsql.cursor().execute("DELETE FROM service_nodes WHERE uid = (SELECT id FROM users WHERE telegram_id = %s)", (chatid,))
             else:
