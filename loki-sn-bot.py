@@ -264,7 +264,10 @@ def loki_updater():
                 if not sn['last_reward_block_height']:
                     sn.update(last_reward_block_height=lrbh)
                 elif sn['last_reward_block_height'] and lrbh > sn['last_reward_block_height']:
-                    if sn['rewards'] and not just_completed and sn.state('total_contributed') >= sn.state('staking_requirement'):
+                    if (sn['rewards']
+                            and lrbh > sn.state('state_height') # will be == if the update was a recommission rather than a reward
+                            and not just_completed
+                            and sn.state('total_contributed') >= sn.state('staking_requirement')):
                         snreward = reward(lrbh)
                         my_rewards = []
                         if sn['uid'] in wallets and len(sn.state('contributors')) > 1:
