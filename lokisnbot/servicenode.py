@@ -8,18 +8,8 @@ from .constants import *
 def lsr(h, testnet=False):
     if testnet:
         return 100
-    elif h >= LINEARIZE_STAKING[-1][0]:
-        return LINEARIZE_STAKING[-1][1] / COIN
-    elif h >= LINEARIZE_STAKING[0][0]:
-        for i in range(1, len(LINEARIZE_STAKING)):
-            right = LINEARIZE_STAKING[i]
-            if right[0] > h:
-                left = LINEARIZE_STAKING[i-1]
-                return (left[1] + (h - left[0]) * ((right[1] - left[1]) // (right[0] - left[0]))) / COIN
-    elif h >= 234767:
-        return 15000 + 25007 * 2**((101250-h)/129600.)
     else:
-        return 10000 + 35000 * 2**((101250-h)/129600.)
+        return 15000
 
 def reward(h):
     return 16.5
