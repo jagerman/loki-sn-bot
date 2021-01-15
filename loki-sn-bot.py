@@ -21,10 +21,10 @@ from lokisnbot.servicenode import ServiceNode, reward
 
 if not hasattr(config, 'WELCOME'):
     config.WELCOME = (
-            'Hi!  I can give you Loki service node information and send you alerts if the uptime proof for your service node(s) gets too long.  ' +
+            'Hi!  I can give you Oxen service node information and send you alerts if the uptime proof for your service node(s) gets too long.  ' +
             'I can also optionally let you know when your service nodes earn a payment and when your service node is nearing expiry.' +
             ('\n\nI am also capable of monitoring testnet service nodes if you send me a pubkey for a service node on the testnet.' if config.TESTNET_NODE_URL else '') +
-            ('\n\nI also have a testnet wallet attached: if you need some testnet funds use the testnet faucet menu to have me send some testnet LOKI your way.' if config.TESTNET_WALLET_URL and config.TESTNET_FAUCET_AMOUNT else '') +
+            ('\n\nI also have a testnet wallet attached: if you need some testnet funds use the testnet faucet menu to have me send some testnet OXEN your way.' if config.TESTNET_WALLET_URL and config.TESTNET_FAUCET_AMOUNT else '') +
             ('\n\nThis bot is operated by {owner}' if config.TELEGRAM_OWNER or config.DISCORD_OWNER else '') +
             ('\n\n' + config.EXTRA if config.EXTRA else '')
             )
@@ -39,7 +39,7 @@ tg, dc = None, None
 def notify(sn, msg, is_update=True):
     """Notify based on Telegram/Discord status.  Returns true if at least one notification went out.
     is_update controls whether this is a status update, in which case extra info (a link to
-    lokiblocks) is added; True by default, should be false for boring notifications like rewards"""
+    oxen.observer) is added; True by default, should be false for boring notifications like rewards"""
     global tg, dc
 
     tgid, dcid = sn['telegram_id'], sn['discord_id']
@@ -73,7 +73,7 @@ def loki_updater():
             sns = requests.post(config.NODE_URL + '/json_rpc', json={"jsonrpc":"2.0","id":"0","method":"get_service_nodes"},
                     timeout=2).json()['result']['service_node_states']
         except Exception as e:
-            print("An exception occured during loki stats fetching: {}".format(e))
+            print("An exception occured during oxen stats fetching: {}".format(e))
             continue
         last = now
         sns = { x['service_node_pubkey']: x for x in sns }
@@ -88,7 +88,7 @@ def loki_updater():
                 tsns = { x['service_node_pubkey']: x for x in tsns }
                 lokisnbot.testnet_sn_states, lokisnbot.testnet_network_info = tsns, tstatus
             except Exception as e:
-                print("An exception occured during loki testnet stats fetching: {}; ignoring the error".format(e))
+                print("An exception occured during oxen testnet stats fetching: {}; ignoring the error".format(e))
                 tsns, tstatus = None, None
 
         for s, infinite_from, finite_blocks in (
@@ -225,6 +225,8 @@ def loki_updater():
                         msg = None
                         if snver > sn['last_version']:
                             msg = prefix+'💖 Service node _{}_ upgraded to *v{}* (from *v{}*)'
+                            if snver >= [8,1,5] and sn['last_version'] < [8,1,5]:
+                                msg += '\n\nWelcome to OXEN!'
                         elif [0, 0, 0] < snver < sn['last_version']:
                             msg = prefix+'💔 Service node _{}_ *downgraded* to *v{}* (from *v{}*)!'
 
@@ -277,9 +279,9 @@ def loki_updater():
                                     mine = (snreward - operator_reward) * y['amount'] / sn.state('staking_requirement')
                                     if y['address'] == sn.state('operator_address'):
                                         mine += operator_reward
-                                    my_rewards.append('*{:.3f} LOKI* (_{}...{}_)'.format(mine, y['address'][0:7], y['address'][-3:]))
+                                    my_rewards.append('*{:.3f} OXEN* (_{}...{}_)'.format(mine, y['address'][0:7], y['address'][-3:]))
 
-                        if notify(sn, prefix+'💰 Service node _{}_ earned a reward of *{:.3f} LOKI* at height *{}*.'.format(name, snreward, lrbh) + (
+                        if notify(sn, prefix+'💰 Service node _{}_ earned a reward of *{:.3f} OXEN* at height *{}*.'.format(name, snreward, lrbh) + (
                                     '  Your share: ' + ', '.join(my_rewards) if my_rewards else ''), is_update=False):
                             sn.update(last_reward_block_height=lrbh)
                     else:
@@ -330,7 +332,7 @@ def start_loki_update_thread():
     loki_thread.start()
     while True:
         if lokisnbot.network_info:
-            print("Loki data fetched")
+            print("Oxen data fetched")
             return
         time.sleep(0.25)
 

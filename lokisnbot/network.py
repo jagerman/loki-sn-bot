@@ -200,8 +200,8 @@ class NetworkContext(metaclass=ABCMeta):
                     for v in sorted(version_counts.keys(), key=lambda x: x or "0.0.0", reverse=True)) + '\n'
 
         snbr = reward(h)  # 0.5 * (28 + 100 * 2**(-h/64800))
-        reply_text += 'Current SN stake requirement: {} LOKI\n'.format(b('{:.2f}'.format(lsr(h, testnet=testnet))))
-        reply_text += 'Current SN reward: {} LOKI\n'.format(b('{:.4f}'.format(snbr)))
+        reply_text += 'Current SN stake requirement: {} OXEN\n'.format(b('{:.2f}'.format(lsr(h, testnet=testnet))))
+        reply_text += 'Current SN reward: {} OXEN\n'.format(b('{:.4f}'.format(snbr)))
 
         testnet_clause = "testnet" if testnet else "NOT testnet"
         cur = pgsql.cursor()

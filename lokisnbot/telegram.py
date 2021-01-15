@@ -153,7 +153,7 @@ class TelegramContext(NetworkContext):
         """Asks the user for a testnet address to send faucet testnet loki."""
         if self.faucet_was_recently_used():
             return
-        self.send_reply("So you want some "+self.b('testnet LOKI')+"!  You've come to the right place: just send me your testnet address and I'll send some your way (use /start to cancel):",
+        self.send_reply("So you want some "+self.b('testnet OXEN')+"!  You've come to the right place: just send me your testnet address and I'll send some your way (use /start to cancel):",
                 expect_reply=True)
         self.expect('faucet')
         return True
@@ -161,7 +161,7 @@ class TelegramContext(NetworkContext):
 
     @run_async
     def turn_faucet(self):
-        """Sends some testnet LOKI.  Returns True if successful, False if failed, and None if it prompted the user to send the address again"""
+        """Sends some testnet OXEN.  Returns True if successful, False if failed, and None if it prompted the user to send the address again"""
         uid = self.get_uid()
         self.expect(None)
         if self.faucet_was_recently_used():
@@ -169,7 +169,7 @@ class TelegramContext(NetworkContext):
 
         wallet = self.update.message.text
         if self.is_wallet(wallet, mainnet=True, testnet=False):
-            self.send_reply("🤣 Nice try, but I don't have any mainnet LOKI.  Send me a "+self.i('testnet')+" wallet address instead (use /start to cancel):",
+            self.send_reply("🤣 Nice try, but I don't have any mainnet OXEN.  Send me a "+self.i('testnet')+" wallet address instead (use /start to cancel):",
                     expect_reply=True)
             self.expect('faucet')
 
@@ -179,12 +179,12 @@ class TelegramContext(NetworkContext):
             tx = self.send_faucet_tx(wallet)
             if tx:
                 tx_hash = tx['tx_hash']
-                self.send_reply(dead_end=True, message='💸 Sent you {:.9f} testnet LOKI in {}'.format(
+                self.send_reply(dead_end=True, message='💸 Sent you {:.9f} testnet OXEN in {}'.format(
                     lokisnbot.config.TESTNET_FAUCET_AMOUNT/COIN, '['+tx_hash[0:8]+'...](https://'+lokisnbot.config.TESTNET_EXPLORER+'/tx/'+tx_hash+')'))
 
         else:
             self.send_reply(
-                    '{} does not look like a valid LOKI testnet wallet address!  Please check the address and send it again (use /start to cancel):'.format(wallet),
+                    '{} does not look like a valid OXEN testnet wallet address!  Please check the address and send it again (use /start to cancel):'.format(wallet),
                     expect_reply=True)
             self.expect('faucet')
 

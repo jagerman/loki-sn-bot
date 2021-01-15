@@ -296,29 +296,29 @@ class DiscordContext(NetworkContext):
 
 
     async def turn_faucet(self, wallet : str=None):
-        """Sends some testnet LOKI, or replies with an error message"""
+        """Sends some testnet OXEN, or replies with an error message"""
         uid = self.get_uid()
         if self.faucet_was_recently_used():
             return
 
         if not wallet:
-            msg = "So you want some "+self.b('testnet LOKI')+"!  You've come to the right place: just send me your testnet address and I'll send some your way:"
+            msg = "So you want some "+self.b('testnet OXEN')+"!  You've come to the right place: just send me your testnet address and I'll send some your way:"
             await self.send_reply_async(msg)
             response = await self.get_response_from_user()
             wallet = response.content
 
         if self.is_wallet(wallet, mainnet=True, testnet=False):
-            self.send_reply("🤣 Nice try, but I don't have any mainnet LOKI.  Try again with a "+self.i('testnet')+" wallet address instead")
+            self.send_reply("🤣 Nice try, but I don't have any mainnet OXEN.  Try again with a "+self.i('testnet')+" wallet address instead")
 
         elif self.is_wallet(wallet, mainnet=False, testnet=True):
             tx = self.send_faucet_tx(wallet)
             if tx:
-                self.send_reply(dead_end=True, message='💸 Sent you {:.9f} testnet LOKI: {}'.format(
+                self.send_reply(dead_end=True, message='💸 Sent you {:.9f} testnet OXEN: {}'.format(
                     lokisnbot.config.TESTNET_FAUCET_AMOUNT/COIN, 'https://'+lokisnbot.config.TESTNET_EXPLORER+'/tx/'+tx['tx_hash']))
 
         else:
             self.send_reply(
-                    '{} does not look like a valid LOKI testnet wallet address!  Please check the address and try again'.format(wallet))
+                    '{} does not look like a valid OXEN testnet wallet address!  Please check the address and try again'.format(wallet))
 
 
     def donate(self):
@@ -331,7 +331,7 @@ class DiscordNetwork(Network):
         helpcmd = commands.DefaultHelpCommand(dm_help=True, verify_checks=False)
         self.bot = commands.Bot(
                 command_prefix='$',
-                description='Loki Service Node status and monitoring bot',
+                description='Oxen Service Node status and monitoring bot',
                 help_command=helpcmd
         )
         self.loop = asyncio.get_event_loop()
@@ -347,7 +347,7 @@ class DiscordNetwork(Network):
 
             @commands.command()
             async def status(self, ctx):
-                """Shows current Loki network status"""
+                """Shows current Oxen network status"""
                 DiscordContext(ctx).status()
 
             if lokisnbot.config.TESTNET_NODE_URL:
@@ -360,7 +360,7 @@ class DiscordNetwork(Network):
                 @commands.command()
                 @dm_only
                 async def faucet(self, ctx, wallet : str=''):
-                    """Request some testnet LOKI from the bot"""
+                    """Request some testnet OXEN from the bot"""
                     await DiscordContext(ctx).turn_faucet(wallet)
 
             if lokisnbot.config.DONATION_ADDR:
@@ -567,7 +567,8 @@ class DiscordNetwork(Network):
 
     async def message_user(self, userid, message):
         user = self.bot.get_user(userid)
-        await user.send(message)
+        if user:
+            await user.send(message)
         return True
 
     def try_message(self, chatid, message, append=None):
