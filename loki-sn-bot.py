@@ -226,7 +226,7 @@ def loki_updater():
                         if snver > sn['last_version']:
                             msg = prefix+'💖 Service node _{}_ upgraded to *v{}* (from *v{}*)'
                             if snver >= [8,1,5] and sn['last_version'] < [8,1,5]:
-                                msg += '\n\nWelcome to OXEN!'
+                                msg += '\n\n🐂 Welcome to OXEN! 🐂'
                         elif [0, 0, 0] < snver < sn['last_version']:
                             msg = prefix+'💔 Service node _{}_ *downgraded* to *v{}* (from *v{}*)!'
 
