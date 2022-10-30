@@ -303,8 +303,7 @@ class ServiceNode:
             pct = 0
             if self._state:
                 pct = self._state['total_contributed'] / self._state['staking_requirement'] * 100
-        return '🌑' if pct < 26 else '🌒' if pct < 50 else '🌓' if pct < 75 else '🌔' if pct < 100 else '🌕'
-
+        return '🌒' if pct < 26 else '🌓' if pct < 51 else '🌔' if pct < 100 else '🌕'
 
     def infinite_stake(self):
         """Returns true if this SN was registered with an infinite stake (whether or not that stake is currently set to expire)."""
