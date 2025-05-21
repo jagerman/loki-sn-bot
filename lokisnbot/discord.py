@@ -321,11 +321,15 @@ class DiscordContext(NetworkContext):
 
 class DiscordNetwork(Network):
     def __init__(self, **kwargs):
+        intents = discord.Intents.default()
+        intents.message_content = True
+
         helpcmd = commands.DefaultHelpCommand(dm_help=True, verify_checks=False)
         self.bot = commands.Bot(
                 command_prefix='$',
                 description='Oxen Service Node status and monitoring bot',
-                help_command=helpcmd
+                help_command=helpcmd,
+                intents=intents,
         )
         self.loop = asyncio.get_event_loop()
 
@@ -494,10 +498,10 @@ class DiscordNetwork(Network):
                 await c.send_reply("Auto-monitoring for new SNs is currently: " + c.b("enabled" if c.get_user_field('auto_monitor') else "disabled"))
 
 
-        self.bot.add_cog(General())
-        self.bot.add_cog(SNCommands())
-        self.bot.add_cog(WalletCommands())
-
+        asyncio.gather(
+            self.bot.add_cog(General()),
+            self.bot.add_cog(SNCommands()),
+            self.bot.add_cog(WalletCommands()))
 
 
         @self.bot.event
