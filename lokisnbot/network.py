@@ -8,7 +8,7 @@ import lokisnbot
 from . import pgsql
 from .constants import *
 from .util import friendly_time, ago, explorer, escape_markdown
-from .servicenode import ServiceNode, lsr, reward
+from .servicenode import ServiceNode
 
 last_faucet_use = 0
 
@@ -156,7 +156,8 @@ class NetworkContext(metaclass=ABCMeta):
         unlocking = [0, 0, 0, 0]  # <1 d, <3 days, <1 week, >1 week
         version_counts = {}
         now = int(time.time())
-        h = (lokisnbot.testnet_network_info if testnet else lokisnbot.network_info)['height']
+        netinfo = (lokisnbot.testnet_network_info if testnet else lokisnbot.network_info)
+        h = netinfo['height']
         for sn in sns.values():
             if sn['total_contributed'] < sn['staking_requirement']:
                 waiting += 1
@@ -193,9 +194,13 @@ class NetworkContext(metaclass=ABCMeta):
                     ('{} '+i('[{}]')).format(b(v) if v else i("unknown"), version_counts[v])
                     for v in sorted(version_counts.keys(), key=lambda x: x or "0.0.0", reverse=True)) + '\n'
 
-        snbr = reward(h)  # 0.5 * (28 + 100 * 2**(-h/64800))
-        reply_text += 'Current SN stake requirement: {} OXEN\n'.format(b('{:.2f}'.format(lsr(h, testnet=testnet))))
-        reply_text += 'Current SN reward: {} OXEN\n'.format(b('{:.4f}'.format(snbr)))
+        sr = netinfo['staking_requirement']
+        if sr % 1000000000 == 0:
+            sr = sr // 1000000000
+        else:
+            sr = sr / 1000000000
+        reply_text += 'Current SN staking requirement: {} SESH\n'.format(b('{}'.format(sr)))
+        reply_text += 'Current block reward: {} SESH\n'.format(b('{:d}.{:09d}'.format(netinfo['l2_reward'] // 1000000000, netinfo['l2_reward'] % 1000000000)))
 
         testnet_clause = "testnet" if testnet else "NOT testnet"
         cur = pgsql.cursor()

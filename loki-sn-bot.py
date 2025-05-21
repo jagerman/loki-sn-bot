@@ -16,7 +16,7 @@ import lokisnbot.util as util
 from lokisnbot.telegram import TelegramNetwork
 from lokisnbot.discord import DiscordNetwork
 import lokisnbot.pgsql as pgsql
-from lokisnbot.servicenode import ServiceNode, reward
+from lokisnbot.servicenode import ServiceNode
 #import lokisnbot.discord as dc
 
 if not hasattr(config, 'WELCOME'):
@@ -70,6 +70,10 @@ def loki_updater():
 
         try:
             status = requests.get(config.NODE_URL + '/get_info', timeout=2).json()
+            top_bh = requests.post(config.NODE_URL + '/json_rpc', json={"jsonrpc":"2.0","id":"0","method":"get_last_block_header"},
+                                   timeout=2).json()['result']['block_header']
+            for k in ('l2_height', 'l2_reward'):
+                status[k] = top_bh[k]
             sns = requests.post(config.NODE_URL + '/json_rpc', json={"jsonrpc":"2.0","id":"0","method":"get_service_nodes"},
                     timeout=2).json()['result']['service_node_states']
         except Exception as e:
@@ -274,31 +278,6 @@ def loki_updater():
                         elif notify_time is None and sn['expiry_notified']:
                             sn.update(expiry_notified=None)
 
-                lrbh = sn.state('last_reward_block_height')
-                if not sn['last_reward_block_height']:
-                    sn.update(last_reward_block_height=lrbh)
-                elif sn['last_reward_block_height'] and lrbh > sn['last_reward_block_height']:
-                    if (sn['rewards']
-                            and lrbh > sn.state('state_height') # will be == if the update was a recommission rather than a reward
-                            and not just_completed
-                            and sn.state('total_contributed') >= sn.state('staking_requirement')):
-                        snreward = reward(lrbh)
-                        my_rewards = []
-                        if sn['uid'] in wallets and len(sn.state('contributors')) > 1:
-                            for y in sn.state('contributors'):
-                                if y['address'].startswith(wallets[sn['uid']]):
-                                    operator_reward = snreward * sn.operator_fee()
-                                    mine = (snreward - operator_reward) * y['amount'] / sn.state('staking_requirement')
-                                    if y['address'] == sn.state('operator_address'):
-                                        mine += operator_reward
-                                    my_rewards.append('*{:.3f} OXEN* (_{}...{}_)'.format(mine, y['address'][0:7], y['address'][-3:]))
-
-                        if notify(sn, prefix+'💰 Service node _{}_ earned a reward of *{:.3f} OXEN* at height *{}*.'.format(name, snreward, lrbh) + (
-                                    '  Your share: ' + ', '.join(my_rewards) if my_rewards else ''), is_update=False):
-                            sn.update(last_reward_block_height=lrbh)
-                    else:
-                        sn.update(last_reward_block_height=lrbh)
-
             # Auto-monitor checking
             sn_lists = (sns, tsns) if tsns else (sns,)
             cur.execute("SELECT id, telegram_id, discord_id FROM users WHERE auto_monitor")
@@ -320,7 +299,6 @@ def loki_updater():
                                 'uid': uid,
                                 'active': True,
                                 'complete': sn_data['total_contributed'] >= sn_data['staking_requirement'],
-                                'last_reward_block_height': sn_data['last_reward_block_height']
                             })
                             sn.insert(exclude=('telegram_id', 'discord_id'))
                             notify(sn, "{}Now monitoring a new service node of yours on the network: {} {}".format(

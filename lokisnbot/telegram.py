@@ -185,7 +185,6 @@ class TelegramContext(NetworkContext):
         buttons = []
         uid = self.get_uid()
         all_sns = ServiceNode.all(uid)
-        any_rewards_enabled = False
 
         ncols = 3 if len(all_sns) > 16 else 2 if len(all_sns) >= 6 else 1
 
@@ -218,8 +217,6 @@ class TelegramContext(NetworkContext):
                 buttons[-1].append(snbutton)
             else:
                 buttons.append([snbutton])
-            if sn['rewards']:
-                any_rewards_enabled = True
 
         if prev_button:
             buttons.append([prev_button])
@@ -230,14 +227,11 @@ class TelegramContext(NetworkContext):
                 buttons.append([])
             buttons[-1].append(next_button)
 
-        buttons.append([InlineKeyboardButton('Add a service node', callback_data='add_sn'),
-            InlineKeyboardButton('Show versions/expiries/proofs', callback_data='sns_expiries')]);
         buttons.append([
-            InlineKeyboardButton('Find unmonitored SNs', callback_data='find_unmonitored_sn'),
-            InlineKeyboardButton('Disable reward notifications', callback_data='disable_rewards_all')
-                if any_rewards_enabled else
-                InlineKeyboardButton('Enable reward notifications', callback_data='enable_rewards_all')
-        ])
+            InlineKeyboardButton('Show versions/expiries/proofs', callback_data='sns_expiries')])
+        buttons.append([
+            InlineKeyboardButton('Add a service node', callback_data='add_sn'),
+            InlineKeyboardButton('Find unmonitored SNs', callback_data='find_unmonitored_sn')])
         buttons.append([InlineKeyboardButton('<< Main menu', callback_data='main')])
 
         sn_menu = InlineKeyboardMarkup(buttons)
@@ -336,7 +330,7 @@ class TelegramContext(NetworkContext):
                 return
             self.expect(None)
             pgsql.cursor().execute("INSERT INTO wallet_prefixes (uid, wallet) VALUES (%s, %s) ON CONFLICT DO NOTHING", (uid, wallet))
-            return await self.wallets_menu(('Added {}wallet '+self.i('{}')+'.  I\'ll now calculate your share of shared contribution service node rewards.').format(
+            return await self.wallets_menu(('Added {}wallet '+self.i('{}')+'.').format(
                 self.b('testnet')+' ' if wallet[0] == 'T' else '', wallet))
 
         elif want == 'faucet':
@@ -379,8 +373,6 @@ class TelegramContext(NetworkContext):
                  InlineKeyboardButton('Delete note', callback_data='del_note:{}'.format(snid))]
                     if sn['note'] else
                 [InlineKeyboardButton('Add custom note', callback_data='note:{}'.format(snid))],
-                [InlineKeyboardButton(('Disable' if sn['rewards'] else 'Enable') + ' reward notifications',
-                    callback_data=('dis' if sn['rewards'] else 'en') + 'able_reward:{}'.format(snid))],
                 [InlineKeyboardButton(('Disable' if sn['expires_soon'] else 'Enable') + ' close-to-expiry notifications',
                     callback_data=('dis' if sn['expires_soon'] else 'en') + 'able_expires_soon:{}'.format(snid))],
                 [InlineKeyboardButton('< Service nodes', callback_data='sns'), InlineKeyboardButton('<< Main menu', callback_data='main')]
@@ -464,40 +456,6 @@ class TelegramContext(NetworkContext):
         await self.set_sn_field('alias', None, 'Removed alias for service node _{}_.')
 
 
-    async def enable_reward_notify(self):
-        await self.set_sn_field('rewards', True,
-                "Okay, I'll start sending you block reward notifications for _{}_.")
-
-
-    async def disable_reward_notify(self):
-        await self.set_sn_field('rewards', False,
-                "Okay, I'll no longer send you block reward notifications for _{}_.")
-
-
-    async def enable_reward_notify_all(self):
-        uid = self.get_uid()
-        all_sns = ServiceNode.all(uid)
-        enabled_for = []
-        for sn in all_sns:
-            if not sn['rewards']:
-                sn.update(rewards=True)
-                enabled_for.append("_{}_".format(sn.alias()))
-
-        await self.service_nodes_menu('Reward notification *enabled* for service nodes {}.'.format(", ".join(enabled_for)))
-
-
-    async def disable_reward_notify_all(self):
-        uid = self.get_uid()
-        all_sns = ServiceNode.all(uid)
-        disabled_for = []
-        for sn in all_sns:
-            if sn['rewards']:
-                sn.update(rewards=False)
-                disabled_for.append("_{}_".format(sn.alias()))
-
-        await self.service_nodes_menu('Reward notification *disabled* for service nodes {}.'.format(", ".join(disabled_for)))
-
-
     async def enable_expires_soon(self):
         await self.set_sn_field('expires_soon', True,
                 "Okay, I'll send you expiry notifications when _{}_ is close to expiry (48h, 24h, and 6h).")
@@ -541,8 +499,8 @@ class TelegramContext(NetworkContext):
         w_menu = InlineKeyboardMarkup(wallets)
         if reply_text:
             reply_text += '\n\n'
-        reply_text += ('If you let me know your wallet address(es) I can calculate your specific reward and your portion '
-                'of the stake (for shared contribution service nodes).  I can also use it to automatically monitor new SNs '
+        reply_text += ('If you let me know your wallet address(es) I can indicate your portion '
+                'of the stake (for shared contribution service nodes), and can automatically monitor new SNs '
                 'that you register or contribute to.')
 
         await self.send_reply(reply_text, reply_markup=w_menu)
@@ -653,14 +611,6 @@ class TelegramContext(NetworkContext):
             call = self.ask_note
         elif re.match(r'del_note:\d+', q):
             call = self.del_note
-        elif re.match(r'enable_reward:\d+', q):
-            call = self.enable_reward_notify
-        elif re.match(r'disable_reward:\d+', q):
-            call = self.disable_reward_notify
-        elif q == 'enable_rewards_all':
-            call = self.enable_reward_notify_all
-        elif q == 'disable_rewards_all':
-            call = self.disable_reward_notify_all
         elif re.match(r'enable_expires_soon:\d+', q):
             call = self.enable_expires_soon
         elif re.match(r'disable_expires_soon:\d+', q):

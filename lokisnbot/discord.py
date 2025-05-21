@@ -278,7 +278,7 @@ class DiscordContext(NetworkContext):
             return
 
         pgsql.cursor().execute("INSERT INTO wallet_prefixes (uid, wallet) VALUES (%s, %s) ON CONFLICT DO NOTHING", (self.get_uid(), wallet))
-        return await self.wallets_menu(('Added {}wallet '+self.i('{}')+'.  I\'ll now calculate your share of shared contribution service node rewards.').format(
+        return await self.wallets_menu(('Added {}wallet '+self.i('{}')+'.').format(
             self.b('testnet')+' ' if wallet[0] == 'T' else '', wallet))
 
 
@@ -413,22 +413,6 @@ class DiscordNetwork(Network):
 
             @commands.command()
             @dm_only
-            async def rewards(self, ctx, pubkey : str):
-                """Enables reward notification for a service node (or all monitored SNs if you specify 'all')"""
-                c = DiscordContext(ctx)
-                c.set_sn_field('rewards', pubkey, True,
-                        "Okay, I'll start sending you block reward notifications for _{}_.")
-
-            @commands.command()
-            @dm_only
-            async def norewards(self, ctx, pubkey : str):
-                """Disables reward notifications for a service node (or all monitored SNs if you specify 'all')"""
-                c = DiscordContext(ctx)
-                c.set_sn_field('rewards', pubkey, False,
-                        "Okay, I'll no longer send you block reward notifications for _{}_.")
-
-            @commands.command()
-            @dm_only
             async def soon(self, ctx, pubkey : str):
                 """Enables "expires soon" notifications for a service node"""
                 c = DiscordContext(ctx)
@@ -479,7 +463,7 @@ class DiscordNetwork(Network):
             @commands.command()
             @dm_only
             async def wallet(self, ctx, wallet : str=''):
-                """Associates a wallet with your account (to be able to figure out which rewards/stakes are yours)"""
+                """Associates a wallet with your account (to be able to figure out which stakes are yours)"""
                 await DiscordContext(ctx).ask_wallet(wallet)
 
             @commands.command()

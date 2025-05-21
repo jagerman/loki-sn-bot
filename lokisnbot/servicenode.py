@@ -5,16 +5,6 @@ import lokisnbot
 from . import pgsql
 from .constants import *
 
-def lsr(h, testnet=False):
-    if testnet:
-        return 100
-    else:
-        return 15000
-
-def reward(h):
-    return 16.5
-    #return 14 + 50 * 2**(-h/64800)
-
 base32z_dict = 'ybndrfg8ejkmcpqxot1uwisza345h769'
 
 class ServiceNode:
