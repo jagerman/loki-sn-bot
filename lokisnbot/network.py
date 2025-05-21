@@ -152,26 +152,28 @@ class NetworkContext(metaclass=ABCMeta):
 
     async def status(self, testnet=False, **kwargs):
         sns = lokisnbot.testnet_sn_states if testnet else lokisnbot.sn_states
-        active, decomm, waiting, infinite, old_proof = 0, 0, 0, 0, 0
+        active, decomm, infinite, old_proof, active_zombies, decom_zombies = 0, 0, 0, 0, 0, 0
         unlocking = [0, 0, 0, 0]  # <1 d, <3 days, <1 week, >1 week
         version_counts = {}
         now = int(time.time())
         netinfo = (lokisnbot.testnet_network_info if testnet else lokisnbot.network_info)
         h = netinfo['height']
         for sn in sns.values():
-            if sn['total_contributed'] < sn['staking_requirement']:
-                waiting += 1
-            elif 'active' not in sn or sn['active']:
+            if 'active' not in sn or sn['active']:
                 active += 1
+                if sn['staking_requirement'] == 0:
+                    active_zombies += 1
             else:
                 decomm += 1
+                if sn['staking_requirement'] == 0:
+                    decom_zombies += 1
             if sn['registration_height'] >= (TESTNET_INFINITE_FROM if testnet else INFINITE_FROM):
                 if sn['requested_unlock_height']:
                     unlock_days = (sn['requested_unlock_height'] - h) // 720
                     unlocking[0 if unlock_days < 1 else 1 if unlock_days < 3 else 2 if unlock_days < 7 else 3] += 1
                 else:
                     infinite += 1
-            if sn['last_uptime_proof'] and now - sn['last_uptime_proof'] > PROOF_AGE_WARNING:
+            if sn['last_uptime_proof'] and now - sn['last_uptime_proof'] > PROOF_AGE_WARNING and sn['staking_requirement'] > 0:
                 old_proof += 1
             ver = ServiceNode.to_version_string(sn['service_node_version']) if 'service_node_version' in sn else None
             if ver not in version_counts:
@@ -182,8 +184,18 @@ class NetworkContext(metaclass=ABCMeta):
         b = lambda x: self.b(x)
         i = lambda x: self.i(x)
         reply_text = '🚧 ' + b('Testnet') + ' 🚧\n' if testnet else ''
-        reply_text += 'Network height: {}\n'.format(b(h));
-        reply_text += 'Service nodes: {} {} + {} {} + {} {}\n'.format(b(active), i('(active)'), b(decomm), i('(decomm.)'), b(waiting), i('(awaiting stake)'))
+        reply_text += 'Oxen chain height: {}\n'.format(b(h))
+        reply_text += 'Witnessed L2 height: {}\n'.format(b(netinfo['l2_height']))
+        reply_text += 'Service nodes: {} {}: {} {} + {} {}\n'.format(
+                b(len(sns)), i('(total)'),
+                b(active), i('(active)'),
+                b(decomm), i('(decomm.)'))
+        zombies = active_zombies + decom_zombies
+        if zombies > 0:
+            reply_text += '    🧟 {} HF21 "zombies": {} {} + {} {}\n'.format(
+                    b(zombies),
+                    b(active_zombies), i('(active)'),
+                    b(decom_zombies), i('(decomm.)'))
         if infinite or any(unlocking):
             reply_text += 'SNs unlocking: {total} ({n[0]} {u[0]}, {n[1]} {u[1]}, {n[2]} {u[2]}, {n[3]} {u[3]})\n'.format(
                     total=b(sum(unlocking)), u=[b(u) for u in unlocking], n=[i('<1d:'), i('1-3d:'), i('3-7d:'), i('≥7d:')])
@@ -209,10 +221,10 @@ class NetworkContext(metaclass=ABCMeta):
         cur.execute("SELECT COUNT(*) FROM (SELECT DISTINCT users.id FROM users JOIN service_nodes ON uid = users.id WHERE active AND "+testnet_clause+") AS usrs")
         active_users = cur.fetchone()[0]
 
-        reply_text += 'I am currently monitoring {} active {}service nodes ({}) on behalf of {} users.'.format(
+        reply_text += 'I am currently monitoring {} registered {}service nodes ({}) on behalf of {} users.'.format(
                 b(monitored_sns),
                 b("testnet ") if testnet else "",
-                b('{:.1f}%'.format(100 * monitored_sns / (active + waiting))),
+                b('{:.1f}%'.format(100 * monitored_sns / (active + decomm))),
                 b(active_users))
 
         if self.is_dm():
@@ -476,7 +488,7 @@ class NetworkContext(metaclass=ABCMeta):
 
         uid = self.get_uid()
 
-        if re.match('^\s*[0-9a-f]{64}(?:\s+[0-9a-f]{64})*\s*$', text):
+        if re.match(r'^\s*[0-9a-f]{64}(?:\s+[0-9a-f]{64})*\s*$', text):
             pubkeys = text.split()
         else:
             return None

@@ -111,11 +111,12 @@ class TelegramContext(NetworkContext):
             )
 
 
-    async def main_menu(self, reply='', last_button=None, testnet_buttons=False):
+    async def main_menu(self, reply='', button2=None, last_button=None, testnet_buttons=False):
         self.expect(None)
 
         choices = [
-            [InlineKeyboardButton('Service node(s)', callback_data='sns'), InlineKeyboardButton('Wallet(s)', callback_data='wallets')],
+            [InlineKeyboardButton('Service node(s)', callback_data='sns'),
+             button2 if button2 is not None else InlineKeyboardButton('Wallet(s)', callback_data='wallets')],
         ]
         if testnet_buttons:
             testnet_status, testnet_faucet = bool(lokisnbot.config.TESTNET_NODE_URL), bool(lokisnbot.config.TESTNET_WALLET_URL and lokisnbot.config.TESTNET_FAUCET_AMOUNT)
@@ -128,7 +129,7 @@ class TelegramContext(NetworkContext):
         if last_button:
             choices.append([last_button])
         else:
-            choices.append([InlineKeyboardButton('Status', callback_data='status')])
+            choices.append([InlineKeyboardButton('Network Status', callback_data='status')])
             if lokisnbot.config.DONATION_ADDR:
                 choices[-1].append(InlineKeyboardButton('Donate', callback_data='donate'))
 
@@ -140,7 +141,8 @@ class TelegramContext(NetworkContext):
 
 
     async def status(self, testnet=False):
-        await super().status(testnet=testnet, last_button=InlineKeyboardButton('<< Main menu', callback_data='main'))
+        await super().status(testnet=testnet, last_button=InlineKeyboardButton('<< Main menu', callback_data='main'),
+                             button2=InlineKeyboardButton('Refresh', callback_data='status'))
 
 
     async def testnet_status(self):
