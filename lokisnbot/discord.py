@@ -39,13 +39,9 @@ class DiscordContext(NetworkContext):
     def escape_msg(txt):
         return escape_markdown(txt)
 
-    async def send_reply_async(self, message, **kwargs):
+    async def send_reply(self, message, **kwargs):
         for message in self.breakup_long_message(message, 2000):
             await self.context.send(message, **kwargs)
-
-
-    def send_reply(self, message, dead_end=False, expect_reply=False, **kwargs):
-        asyncio.ensure_future(self.send_reply_async(message, **kwargs))
 
 
     def get_uid(self):
@@ -69,11 +65,11 @@ class DiscordContext(NetworkContext):
         return isinstance(self.context.channel, discord.DMChannel)
 
 
-    def start(self):
-        return self.main_menu(lokisnbot.config.WELCOME.format(owner=lokisnbot.config.DISCORD_OWNER))
+    async def start(self):
+        return await self.main_menu(lokisnbot.config.WELCOME.format(owner=lokisnbot.config.DISCORD_OWNER))
 
 
-    def service_nodes(self, reply_text=''):
+    async def service_nodes(self, reply_text=''):
         global last_pubkeys
         uid = self.get_uid()
         all_sns = ServiceNode.all(uid)
@@ -91,10 +87,10 @@ class DiscordContext(NetworkContext):
         else:
             reply_text += 'No service nodes are currently monitored.'
 
-        self.send_reply(reply_text)
+        await self.send_reply(reply_text)
 
 
-    def service_nodes_expiries(self):
+    async def service_nodes_expiries(self):
         global last_pubkeys
         uid = self.get_uid()
         sns = ServiceNode.all(uid, sortkey=lambda sn: (sn['testnet'], sn.expiry_block() or float("inf"), sn['alias'] or sn['pubkey']))
@@ -119,10 +115,10 @@ class DiscordContext(NetworkContext):
         else:
             msg += 'No service nodes are current monitored'
 
-        self.send_reply(msg)
+        await self.send_reply(msg)
 
 
-    def pubkey_from_arg(self, arg, send_errmsg=False):
+    async def pubkey_from_arg(self, arg, send_errmsg=False):
         global last_pubkeys
         if re.search('^[0-9a-f]{64}$', arg):  # Full pubkey
             return arg
@@ -141,32 +137,32 @@ class DiscordContext(NetworkContext):
                 return pk
 
             if send_errmsg:
-                self.send_reply("Error: `{}` is not a valid service node pubkey, list index, or alias".format(arg))
+                await self.send_reply("Error: `{}` is not a valid service node pubkey, list index, or alias".format(arg))
         elif send_errmsg:
-            self.send_reply("Error: `{}` is not a valid service node pubkey".format(arg))
+            await self.send_reply("Error: `{}` is not a valid service node pubkey".format(arg))
         return None
 
 
-    def start_monitoring(self, *pubkeys : str):
-        pubkeys = [self.pubkey_from_arg(x) for x in pubkeys]
+    async def start_monitoring(self, *pubkeys : str):
+        pubkeys = [await self.pubkey_from_arg(x) for x in pubkeys]
         if None in pubkeys:
-            return self.send_reply("Invalid usage: $start PUBKEY PUBKEY ... — starts monitoring one or more service nodes")
-        self.plain_input(text=' '.join(pubkeys), add_sn=True)
+            return await self.send_reply("Invalid usage: $start PUBKEY PUBKEY ... — starts monitoring one or more service nodes")
+        await self.plain_input(text=' '.join(pubkeys), add_sn=True)
 
 
-    def stop_monitoring(self, *pubkeys : str):
-        pubkeys = [self.pubkey_from_arg(x) for x in pubkeys]
+    async def stop_monitoring(self, *pubkeys : str):
+        pubkeys = [await self.pubkey_from_arg(x) for x in pubkeys]
         if None in pubkeys:
-            return self.send_reply("Invalid usage: $stop PUBKEY PUBKEY ... — stop monitoring one or more service nodes")
+            return await self.send_reply("Invalid usage: $stop PUBKEY PUBKEY ... — stop monitoring one or more service nodes")
 
         uid = self.get_uid()
         for pubkey in pubkeys:
             try:
                 sn = ServiceNode(pubkey=pubkey, uid=uid)
             except ValueError:
-                self.send_reply("I couldn't find service node {}, or I wasn't monitoring it.  Please check the public service node id and try again".format(pubkey))
+                await self.send_reply("I couldn't find service node {}, or I wasn't monitoring it.  Please check the public service node id and try again".format(pubkey))
             sn.delete()
-            self.send_reply("Okay, I'm no longer monitoring service node " + (
+            await self.send_reply("Okay, I'm no longer monitoring service node " + (
                 "{} ({})".format(self.i(sn['alias']), self.i(sn['pubkey'])) if sn['alias'] else self.i(sn['pubkey'])) + " for you.")
 
 
@@ -179,7 +175,7 @@ class DiscordContext(NetworkContext):
 
 
     async def request_sn_field(self, field, pubkey, send_fmt=None, current_fmt=None, success_fmt=None):
-        pubkey = self.pubkey_from_arg(pubkey, send_errmsg=True)
+        pubkey = await self.pubkey_from_arg(pubkey, send_errmsg=True)
         if pubkey is None:
             return
 
@@ -201,23 +197,23 @@ class DiscordContext(NetworkContext):
         await self.send_reply_async(msg)
         response = await self.get_response_from_user()
         sn.update(**{field: response.content})
-        self.service_node(sn=sn, reply_text=success_fmt.format(sn.alias()))
+        await self.service_node(sn=sn, reply_text=success_fmt.format(sn.alias()))
 
 
-    def set_sn_field(self, field, pubkey, value, success):
+    async def set_sn_field(self, field, pubkey, value, success):
         if pubkey == 'all':
             sns = ServiceNode.all(self.get_uid())
             if not sns:
-                return self.send_reply("Unable to do that: you aren't currently monitoring any service nodes!")
+                return await self.send_reply("Unable to do that: you aren't currently monitoring any service nodes!")
         else:
-            pubkey = self.pubkey_from_arg(pubkey, send_errmsg=True)
+            pubkey = await self.pubkey_from_arg(pubkey, send_errmsg=True)
             if pubkey is None:
                 return
 
             try:
                 sns = [ServiceNode(pubkey=pubkey, uid=self.get_uid())]
             except ValueError:
-                return self.service_node(snid=snid, reply_text="I couldn't find that service node!")
+                return await self.service_node(snid=snid, reply_text="I couldn't find that service node!")
 
         success_msgs = []
         for sn in sns:
@@ -226,12 +222,12 @@ class DiscordContext(NetworkContext):
             success_msgs.append(success.format(sn.alias()))
 
         if len(sns) == 1:
-            self.service_node(sn=sns[0], reply_text=success.format(sn.alias()))
+            await self.service_node(sn=sns[0], reply_text=success.format(sn.alias()))
         else:
-            self.service_nodes('\n'.join(success_msgs))
+            await self.service_nodes('\n'.join(success_msgs))
 
 
-    def wallets_menu(self, reply_text=''):
+    async def wallets_menu(self, reply_text=''):
         uid = self.get_uid()
 
         wallets = []
@@ -246,10 +242,10 @@ class DiscordContext(NetworkContext):
         if reply_text:
             reply_text += '\n\n'
         reply_text += 'Known wallets:' + ('\n' + '\n'.join(wallets) if wallets else ' ' + self.i('none'))
-        self.send_reply(reply_text)
+        await self.send_reply(reply_text)
 
 
-    def forget_wallet(self, wallet_prefix : str):
+    async def forget_wallet(self, wallet_prefix : str):
         uid = self.get_uid()
         msgs = []
         remove = []
@@ -266,7 +262,7 @@ class DiscordContext(NetworkContext):
         if not msgs:
             msgs.append('I didn\'t know about that wallet in the first place!')
 
-        self.wallets_menu('\n'.join(msgs))
+        await self.wallets_menu('\n'.join(msgs))
 
 
     async def ask_wallet(self, wallet : str=None):
@@ -277,28 +273,28 @@ class DiscordContext(NetworkContext):
             response = await self.get_response_from_user()
             wallet = response.content
 
-        if not self.is_wallet(wallet, mainnet=True, testnet=True, primary=True, partial=True):
-            await self.send_reply_async('That doesn\'t look like a valid primary wallet address!')
+        if not self.is_wallet(wallet, partial=True):
+            await self.send_reply_async('That doesn\'t look like a valid wallet address!')
             return
 
         pgsql.cursor().execute("INSERT INTO wallet_prefixes (uid, wallet) VALUES (%s, %s) ON CONFLICT DO NOTHING", (self.get_uid(), wallet))
-        return self.wallets_menu(('Added {}wallet '+self.i('{}')+'.  I\'ll now calculate your share of shared contribution service node rewards.').format(
+        return await self.wallets_menu(('Added {}wallet '+self.i('{}')+'.  I\'ll now calculate your share of shared contribution service node rewards.').format(
             self.b('testnet')+' ' if wallet[0] == 'T' else '', wallet))
 
 
-    def find_unmonitored(self):
+    async def find_unmonitored(self):
         added = super().find_unmonitored()
         if added:
-            return self.service_nodes(
+            return await self.service_nodes(
                 '\n'.join('Found and added {} {}.'.format(sn.status_icon(), sn.alias()) for sn in added))
         else:
-            return self.wallets_menu("Didn't find any unmonitored service nodes matching your wallet(s).")
+            return await self.wallets_menu("Didn't find any unmonitored service nodes matching your wallet(s).")
 
 
     async def turn_faucet(self, wallet : str=None):
         """Sends some testnet OXEN, or replies with an error message"""
         uid = self.get_uid()
-        if self.faucet_was_recently_used():
+        if await self.faucet_was_recently_used():
             return
 
         if not wallet:
@@ -307,23 +303,20 @@ class DiscordContext(NetworkContext):
             response = await self.get_response_from_user()
             wallet = response.content
 
-        if self.is_wallet(wallet, mainnet=True, testnet=False):
-            self.send_reply("🤣 Nice try, but I don't have any mainnet OXEN.  Try again with a "+self.i('testnet')+" wallet address instead")
-
-        elif self.is_wallet(wallet, mainnet=False, testnet=True):
+        if self.is_wallet(wallet):
             tx = self.send_faucet_tx(wallet)
             if tx:
-                self.send_reply(dead_end=True, message='💸 Sent you {:.9f} testnet OXEN: {}'.format(
+                await self.send_reply(dead_end=True, message='💸 Sent you {:.9f} testnet OXEN: {}'.format(
                     lokisnbot.config.TESTNET_FAUCET_AMOUNT/COIN, 'https://'+lokisnbot.config.TESTNET_EXPLORER+'/tx/'+tx['tx_hash']))
 
         else:
-            self.send_reply(
-                    '{} does not look like a valid OXEN testnet wallet address!  Please check the address and try again'.format(wallet))
+            await self.send_reply(
+                    '{} does not look like a valid ETH testnet wallet address!  Please check the address and try again'.format(wallet))
 
 
-    def donate(self):
+    async def donate(self):
         msg = 'Find this bot useful?  Donations appreciated: ' + lokisnbot.config.DONATION_ADDR
-        self.send_reply(msg, file=discord.File(open(lokisnbot.config.DONATION_IMAGE, 'rb')) if lokisnbot.config.DONATION_IMAGE else None)
+        await self.send_reply(msg, file=discord.File(open(lokisnbot.config.DONATION_IMAGE, 'rb')) if lokisnbot.config.DONATION_IMAGE else None)
 
 
 class DiscordNetwork(Network):
@@ -343,18 +336,18 @@ class DiscordNetwork(Network):
             @dm_only
             async def about(self, ctx):
                 """Shows welcome message and general bot info"""
-                DiscordContext(ctx).start()
+                await DiscordContext(ctx).start()
 
             @commands.command()
             async def status(self, ctx):
                 """Shows current Oxen network status"""
-                DiscordContext(ctx).status()
+                await DiscordContext(ctx).status()
 
             if lokisnbot.config.TESTNET_NODE_URL:
                 @commands.command()
                 async def testnet(self, ctx):
                     """Shows current testnet status"""
-                    DiscordContext(ctx).status(testnet=True)
+                    await DiscordContext(ctx).status(testnet=True)
 
             if lokisnbot.config.TESTNET_WALLET_URL and lokisnbot.config.TESTNET_FAUCET_AMOUNT:
                 @commands.command()
@@ -367,26 +360,26 @@ class DiscordNetwork(Network):
                 @commands.command()
                 async def donate(self, ctx):
                     """Like this bot?  Find out how to donate here"""
-                    DiscordContext(ctx).donate()
+                    await DiscordContext(ctx).donate()
 
         class SNCommands(commands.Cog, name='Service node commands'):
             @commands.command()
             @dm_only
             async def expires(self, ctx):
                 """Show service nodes sorted by expiry"""
-                DiscordContext(ctx).service_nodes_expiries()
+                await DiscordContext(ctx).service_nodes_expiries()
 
             @commands.command()
             @dm_only
             async def start(self, ctx, *pubkeys : str):
                 """Adds a service node to the monitored service nodes"""
-                DiscordContext(ctx).start_monitoring(*pubkeys)
+                await DiscordContext(ctx).start_monitoring(*pubkeys)
 
             @commands.command()
             @dm_only
             async def stop(self, ctx, *pubkeys : str):
                 """Stops monitoring service nodes"""
-                DiscordContext(ctx).stop_monitoring(*pubkeys)
+                await DiscordContext(ctx).stop_monitoring(*pubkeys)
 
             @commands.command()
             @dm_only
@@ -454,15 +447,15 @@ class DiscordNetwork(Network):
             @dm_only
             async def sns(self, ctx):
                 """Lists currently monitored service nodes"""
-                DiscordContext(ctx).service_nodes()
+                await DiscordContext(ctx).service_nodes()
 
             @commands.command()
             async def sn(self, ctx, pubkey : str):
                 """Shows details of a service node; specify the index of the last service node list, or a full SN pubkey (if used in a channel, only a pubkey is allowed)"""
                 c = DiscordContext(ctx)
-                pubkey = c.pubkey_from_arg(pubkey, send_errmsg=True)
+                pubkey = await c.pubkey_from_arg(pubkey, send_errmsg=True)
                 if pubkey:
-                    DiscordContext(ctx).service_node(pubkey=pubkey)
+                    await DiscordContext(ctx).service_node(pubkey=pubkey)
 
             @commands.command(name='$')
             @dm_only
@@ -470,18 +463,18 @@ class DiscordNetwork(Network):
                 """A shortcut for either $sn or $sns: if given an argument it shows details of a service node; with no argument it lists monitored service nodes"""
                 c = DiscordContext(ctx)
                 if pubkey:
-                    pubkey = c.pubkey_from_arg(pubkey, send_errmsg=True)
+                    pubkey = await c.pubkey_from_arg(pubkey, send_errmsg=True)
                     if pubkey:
-                        c.service_node(pubkey=pubkey)
+                        await c.service_node(pubkey=pubkey)
                 else:
-                    c.service_nodes()
+                    await c.service_nodes()
 
         class WalletCommands(commands.Cog, name='Wallet-related commands'):
             @commands.command()
             @dm_only
             async def wallets(self, ctx):
                 """List wallets the bot associates with your account"""
-                DiscordContext(ctx).wallets_menu()
+                await DiscordContext(ctx).wallets_menu()
 
             @commands.command()
             @dm_only
@@ -493,13 +486,13 @@ class DiscordNetwork(Network):
             @dm_only
             async def nowallet(self, ctx, wallet : str):
                 """Forgets a wallet associated with your account; pass the wallet (or wallet prefix) to forget"""
-                DiscordContext(ctx).forget_wallet(wallet)
+                await DiscordContext(ctx).forget_wallet(wallet)
 
             @commands.command(aliases=['unmon'])
             @dm_only
             async def unmonitored(self, ctx):
                 """Looks for any service nodes matching your wallet(s) (registered with `$wallet`) and starts monitoring them"""
-                DiscordContext(ctx).find_unmonitored()
+                await DiscordContext(ctx).find_unmonitored()
 
             @commands.command()
             @dm_only
@@ -512,9 +505,9 @@ class DiscordNetwork(Network):
                     elif enable == 'off':
                         c.set_user_field('auto_monitor', False)
                     else:
-                        c.send_reply("Invalid command; use one of `$automon on`, `$automon off`, or `$automon`")
+                        await c.send_reply("Invalid command; use one of `$automon on`, `$automon off`, or `$automon`")
                         return
-                c.send_reply("Auto-monitoring for new SNs is currently: " + c.b("enabled" if c.get_user_field('auto_monitor') else "disabled"))
+                await c.send_reply("Auto-monitoring for new SNs is currently: " + c.b("enabled" if c.get_user_field('auto_monitor') else "disabled"))
 
 
         self.bot.add_cog(General())
@@ -527,7 +520,7 @@ class DiscordNetwork(Network):
         async def on_command_error(ctx, exc):
             c = DiscordContext(ctx)
             if c.is_dm() and isinstance(exc, (commands.MissingRequiredArgument, commands.errors.CommandNotFound)):
-                c.send_reply("Invalid command `{}`: {}".format(ctx.message.content, exc))
+                await c.send_reply("Invalid command `{}`: {}".format(ctx.message.content, exc))
             else:
                 if isinstance(exc, commands.errors.CheckFailure) and not c.is_dm():
                     pass  # Ignore: this is a private command sent in public, it's supposed to fail.
@@ -556,8 +549,8 @@ class DiscordNetwork(Network):
                 await self.bot.invoke(ctx)
             else:
                 c = DiscordContext(ctx)
-                if c.is_dm() and not c.plain_input(message.content):
-                    c.send_reply("Sorry, I didn't understand.  Try `$help` for a list of commands")
+                if c.is_dm() and not await c.plain_input(message.content):
+                    await c.send_reply("Sorry, I didn't understand.  Try `$help` for a list of commands")
 
     def start(self):
         asyncio.ensure_future(self.bot.start(lokisnbot.config.DISCORD_TOKEN))
@@ -571,13 +564,13 @@ class DiscordNetwork(Network):
             await user.send(message)
         return True
 
-    def try_message(self, chatid, message, append=None):
+    async def try_message(self, chatid, message, append=None):
         """Send a message to the bot.  If the message gives a 'bot was blocked by the user' error then
         we delete the user's service_nodes (to stop generating more messages)."""
         if append:
             message += '\n' + append
-        future = asyncio.run_coroutine_threadsafe(self.message_user(chatid, message), self.loop)
         try:
+            await self.message_user(chatid, message)
             future.result()
         except Exception as e:
             print("Sending to user {} failed: {}".format(chatid, e))

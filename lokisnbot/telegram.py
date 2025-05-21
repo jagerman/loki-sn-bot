@@ -3,9 +3,10 @@
 import re
 import math
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ParseMode, Update, ChatAction, ForceReply
-from telegram.ext import Updater, Dispatcher, CommandHandler, MessageHandler, Filters, CallbackQueryHandler, CallbackContext
-from telegram.ext.dispatcher import run_async
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, ForceReply
+from telegram.constants import ParseMode, ChatAction
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, CallbackContext
+import telegram.ext.filters
 from telegram.error import TelegramError, BadRequest
 
 import lokisnbot
@@ -47,7 +48,7 @@ class TelegramContext(NetworkContext):
         return escape_markdown(txt)
 
 
-    def send_reply(self, message, reply_markup=None, dead_end=False, expect_reply=False):
+    async def send_reply(self, message, reply_markup=None, dead_end=False, expect_reply=False):
         """Sends a reply.  reply_markup can be used to append buttons; dead_end can be used instead of
         reply_markup to add just a '<< Main menu' button; expect_reply puts the user into reply mode (only
         has effect if reply_markup and dead_end are omitted)."""
@@ -71,8 +72,8 @@ class TelegramContext(NetworkContext):
 
         msgs = self.breakup_long_message(message, 4096)
         for msg in msgs[:-1]:
-            send(msg, None)
-        send(msgs[-1], reply_markup)
+            await send(msg, None)
+        await send(msgs[-1], reply_markup)
 
 
     def get_uid(self):
@@ -110,7 +111,7 @@ class TelegramContext(NetworkContext):
             )
 
 
-    def main_menu(self, reply='', last_button=None, testnet_buttons=False):
+    async def main_menu(self, reply='', last_button=None, testnet_buttons=False):
         self.expect(None)
 
         choices = [
@@ -131,66 +132,56 @@ class TelegramContext(NetworkContext):
             if lokisnbot.config.DONATION_ADDR:
                 choices[-1].append(InlineKeyboardButton('Donate', callback_data='donate'))
 
-        super().main_menu(reply, reply_markup=InlineKeyboardMarkup(choices))
+        await super().main_menu(reply, reply_markup=InlineKeyboardMarkup(choices))
 
 
-    @run_async
-    def start(self):
-        return self.main_menu(lokisnbot.config.WELCOME.format(owner=lokisnbot.config.TELEGRAM_OWNER), testnet_buttons=True)
+    async def start(self):
+        return await self.main_menu(lokisnbot.config.WELCOME.format(owner=lokisnbot.config.TELEGRAM_OWNER), testnet_buttons=True)
 
 
-    @run_async
-    def status(self, testnet=False):
-        super().status(testnet=testnet, last_button=InlineKeyboardButton('<< Main menu', callback_data='main'))
+    async def status(self, testnet=False):
+        await super().status(testnet=testnet, last_button=InlineKeyboardButton('<< Main menu', callback_data='main'))
 
 
-    def testnet_status(self):
-        return self.status(testnet=True)
+    async def testnet_status(self):
+        return await self.status(testnet=True)
 
 
-    @run_async
-    def testnet_faucet(self):
+    async def testnet_faucet(self):
         """Asks the user for a testnet address to send faucet testnet loki."""
-        if self.faucet_was_recently_used():
+        if await self.faucet_was_recently_used():
             return
-        self.send_reply("So you want some "+self.b('testnet OXEN')+"!  You've come to the right place: just send me your testnet address and I'll send some your way (use /start to cancel):",
+        await self.send_reply("So you want some "+self.b('testnet SESH')+"!  You've come to the right place: just send me your testnet address and I'll send some your way (use /start to cancel):",
                 expect_reply=True)
         self.expect('faucet')
         return True
 
 
-    @run_async
-    def turn_faucet(self):
-        """Sends some testnet OXEN.  Returns True if successful, False if failed, and None if it prompted the user to send the address again"""
+    async def turn_faucet(self):
+        """Sends some testnet SESH.  Returns True if successful, False if failed, and None if it prompted the user to send the address again"""
         uid = self.get_uid()
         self.expect(None)
-        if self.faucet_was_recently_used():
+        if await self.faucet_was_recently_used():
             return
 
         wallet = self.update.message.text
-        if self.is_wallet(wallet, mainnet=True, testnet=False):
-            self.send_reply("🤣 Nice try, but I don't have any mainnet OXEN.  Send me a "+self.i('testnet')+" wallet address instead (use /start to cancel):",
-                    expect_reply=True)
-            self.expect('faucet')
-
-        elif self.is_wallet(wallet, mainnet=False, testnet=True):
-            self.context.bot.send_chat_action(chat_id=self.update.message.chat_id, action=ChatAction.UPLOAD_DOCUMENT)
+        if self.is_wallet(wallet):
+            await self.context.bot.send_chat_action(chat_id=self.update.message.chat_id, action=ChatAction.UPLOAD_DOCUMENT)
 
             tx = self.send_faucet_tx(wallet)
             if tx:
                 tx_hash = tx['tx_hash']
-                self.send_reply(dead_end=True, message='💸 Sent you {:.9f} testnet OXEN in {}'.format(
+                await self.send_reply(dead_end=True, message='💸 Sent you {:.9f} testnet SESH in {}'.format(
                     lokisnbot.config.TESTNET_FAUCET_AMOUNT/COIN, '['+tx_hash[0:8]+'...](https://'+lokisnbot.config.TESTNET_EXPLORER+'/tx/'+tx_hash+')'))
 
         else:
-            self.send_reply(
-                    '{} does not look like a valid OXEN testnet wallet address!  Please check the address and send it again (use /start to cancel):'.format(wallet),
+            await self.send_reply(
+                    '{} does not look like a valid ETH wallet address!  Please check the address and send it again (use /start to cancel):'.format(wallet),
                     expect_reply=True)
             self.expect('faucet')
 
 
-    @run_async
-    def service_nodes_menu(self, reply_text='', page=0):
+    async def service_nodes_menu(self, reply_text='', page=0):
         buttons = []
         uid = self.get_uid()
         all_sns = ServiceNode.all(uid)
@@ -254,11 +245,10 @@ class TelegramContext(NetworkContext):
             reply_text += '\n\n'
         reply_text += 'View an existing service node, or add a new one?'
 
-        self.send_reply(reply_text, reply_markup=sn_menu)
+        await self.send_reply(reply_text, reply_markup=sn_menu)
 
 
-    @run_async
-    def service_nodes_expiries(self):
+    async def service_nodes_expiries(self):
         uid = self.get_uid()
         sns = ServiceNode.all(uid, sortkey=lambda sn: (sn['testnet'], sn.expiry_block() or float("inf"), sn['alias'] or sn['pubkey']))
 
@@ -286,31 +276,28 @@ class TelegramContext(NetworkContext):
                 msg += '; ' + sn.format_proof_age(extra_short=True)
                 msg += '\n'
 
-        self.service_nodes_menu(reply_text=msg)
+        await self.service_nodes_menu(reply_text=msg)
 
 
-    @run_async
-    def service_node_add(self):
-        self.send_reply('Okay, send me the public key(s) of the service node(s) to add (use /start to cancel):', expect_reply=True)
+    async def service_node_add(self):
+        await self.send_reply('Okay, send me the public key(s) of the service node(s) to add (use /start to cancel):', expect_reply=True)
         self.expect('add_sn')
 
 
-    @run_async
-    def service_node_menu(self):
-        return self.service_node(snid=int(self.update.callback_query.data.split(':', 1)[1]))
+    async def service_node_menu(self):
+        return await self.service_node(snid=int(self.update.callback_query.data.split(':', 1)[1]))
 
 
-    @run_async
-    def service_node_menu_inplace(self):
+    async def service_node_menu_inplace(self):
         snid = self.update.callback_query.data.split(':', 1)[1]
         sn = None
         if snid == 'last':
             snid = None
             sn = ServiceNode({ 'pubkey': self.context.user_data['sn_last_viewed'] })
             del self.context.user_data['sn_last_viewed']
-        msg, sn = self.service_node(snid=snid, sn=sn, send=False)
+        msg, sn = await self.service_node(snid=snid, sn=sn, send=False)
         try:
-            self.context.bot.edit_message_text(
+            await self.context.bot.edit_message_text(
                     text=msg, parse_mode=ParseMode.MARKDOWN,
                     reply_markup=self.sn_markup_menu(sn),
                     chat_id=self.update.callback_query.message.chat_id,
@@ -322,8 +309,7 @@ class TelegramContext(NetworkContext):
                 raise
 
 
-    @run_async
-    def plain_input(self, text=None):
+    async def plain_input(self, text=None):
         if text is None:
             text = self.update.message.text
 
@@ -333,24 +319,24 @@ class TelegramContext(NetworkContext):
             self.expect(None)
             snid = want_data
             pgsql.cursor().execute("UPDATE service_nodes SET note = %s WHERE id = %s AND uid = %s", (text, snid, uid))
-            return self.service_node(snid=snid, reply_text='Updated note for '+self.i('{alias}')+'.  Current status:')
+            return await self.service_node(snid=snid, reply_text='Updated note for '+self.i('{alias}')+'.  Current status:')
 
         elif want == 'alias':
             self.expect(None)
             snid = want_data
             alias = text.replace("*", "").replace("_", "").replace("[", "").replace("`", "")
             pgsql.cursor().execute("UPDATE service_nodes SET alias = %s WHERE id = %s AND uid = %s", (alias, snid, uid))
-            return self.service_node(snid=snid, reply_text="Okay, I'll now refer to service node "+self.i('{sn[pubkey]}')+' as '+self.i('{sn[alias]}')+'.  Current status:')
+            return await self.service_node(snid=snid, reply_text="Okay, I'll now refer to service node "+self.i('{sn[pubkey]}')+' as '+self.i('{sn[alias]}')+'.  Current status:')
 
         elif want == 'wallet':
             wallet = self.update.message.text
-            if not self.is_wallet(wallet, mainnet=True, testnet=True, primary=True, partial=True):
-                self.send_reply('That doesn\'t look like a valid primary wallet address.  Send me at least the first {} characters of your primary wallet address (use /start to cancel):'.format(
+            if not self.is_wallet(wallet, partial=True):
+                await self.send_reply('That doesn\'t look like a valid wallet address.  Send me at least the first {} characters of your wallet address (use /start to cancel):'.format(
                     lokisnbot.config.PARTIAL_WALLET_MIN_LENGTH), expect_reply=True)
                 return
             self.expect(None)
             pgsql.cursor().execute("INSERT INTO wallet_prefixes (uid, wallet) VALUES (%s, %s) ON CONFLICT DO NOTHING", (uid, wallet))
-            return self.wallets_menu(('Added {}wallet '+self.i('{}')+'.  I\'ll now calculate your share of shared contribution service node rewards.').format(
+            return await self.wallets_menu(('Added {}wallet '+self.i('{}')+'.  I\'ll now calculate your share of shared contribution service node rewards.').format(
                 self.b('testnet')+' ' if wallet[0] == 'T' else '', wallet))
 
         elif want == 'faucet':
@@ -359,14 +345,14 @@ class TelegramContext(NetworkContext):
         # Otherwise we're expecting pubkeys, either for query or for adding
         add_sn = want == 'add_sn'
 
-        if super().plain_input(text, add_sn=add_sn):
+        if await super().plain_input(text, add_sn=add_sn):
             self.expect(None)
         elif add_sn:
-            self.send_reply(message="That doesn't look like a valid service node public key; please check the key(s) and try again: (use /start to cancel)", expect_reply=True)
+            await self.send_reply(message="That doesn't look like a valid service node public key; please check the key(s) and try again: (use /start to cancel)", expect_reply=True)
         elif text == 'myid':
-            self.send_reply(message='Your telegram id is: {}; your internal LokiSNBot id is {}'.format(self.update.effective_user.id, uid))
+            await self.send_reply(message='Your telegram id is: {}; your internal LokiSNBot id is {}'.format(self.update.effective_user.id, uid))
         else:
-            self.send_reply(dead_end=True, message='Sorry, I didn\'t understand your message.')
+            await self.send_reply(dead_end=True, message='Sorry, I didn\'t understand your message.')
 
 
     def sn_markup_menu(self, sn):
@@ -401,103 +387,94 @@ class TelegramContext(NetworkContext):
                 ])
 
 
-    def service_node(self, *, send=True, **kwargs):
-        reply_text, sn = super().service_node(**kwargs, send=False)
+    async def service_node(self, *, send=True, **kwargs):
+        reply_text, sn = await super().service_node(**kwargs, send=False)
 
         if send:
-            self.send_reply(reply_text, reply_markup=self.sn_markup_menu(sn))
+            await self.send_reply(reply_text, reply_markup=self.sn_markup_menu(sn))
         else:
             return (reply_text, sn)
 
 
-    @run_async
-    def start_monitoring(self):
+    async def start_monitoring(self):
         self.expect('add_sn')
         pubkey = self.context.user_data['sn_last_viewed']
         del self.context.user_data['sn_last_viewed']
-        self.plain_input(text=pubkey)
+        await self.plain_input(text=pubkey)
 
 
-    @run_async
-    def stop_monitoring(self):
+    async def stop_monitoring(self):
         uid = self.get_uid()
         snid = int(self.update.callback_query.data.split(':', 1)[1])
         try:
             sn = ServiceNode(snid=snid, uid=uid)
         except ValueError:
-            return self.service_nodes_menu("I couldn't find that service node; please try again")
+            return await self.service_nodes_menu("I couldn't find that service node; please try again")
         sn.delete()
         msg = "Okay, I'm no longer monitoring service node " + (
                 "_{}_ (_{}_)".format(sn['alias'], sn['pubkey']) if sn['alias'] else "_{}_".format(sn['pubkey'])) + " for you."
-        return self.service_nodes_menu(msg)
+        return await self.service_nodes_menu(msg)
 
 
-    def request_sn_field(self, field, send_fmt, current_fmt):
+    async def request_sn_field(self, field, send_fmt, current_fmt):
         uid = self.get_uid()
         snid = int(self.update.callback_query.data.split(':', 1)[1])
         try:
             sn = ServiceNode(snid=snid, uid=uid)
         except ValueError:
-            return self.send_reply(dead_end=True, message="I couldn't find that service node!")
+            return await self.send_reply(dead_end=True, message="I couldn't find that service node!")
 
         self.expect(field, snid)
         msg = send_fmt.format(sn=sn, alias=sn.alias())
         if sn[field]:
             msg += '\n\n' + current_fmt.format(sn[field], escaped=self.escape_msg(sn[field]))
-        self.send_reply(msg, expect_reply=True)
+        await self.send_reply(msg, expect_reply=True)
 
 
-    def set_sn_field(self, field, value, success):
+    async def set_sn_field(self, field, value, success):
         uid = self.get_uid()
         snid = int(self.update.callback_query.data.split(':', 1)[1])
         try:
             sn = ServiceNode(snid=snid, uid=uid)
         except ValueError:
-            return self.service_node(snid=snid, reply_text="I couldn't find that service node!")
+            return await self.service_node(snid=snid, reply_text="I couldn't find that service node!")
 
         sn.update(**{field: value})
 
-        self.service_node(sn=sn, reply_text=success.format(sn.alias()))
+        await self.service_node(sn=sn, reply_text=success.format(sn.alias()))
 
 
-    @run_async
-    def ask_note(self):
-        self.request_sn_field('note',
+    async def ask_note(self):
+        await self.request_sn_field('note',
                 "Send me a custom note to set for service node _{alias}_ (use /start to cancel).",
                 "The current note is: {escaped}")
 
 
-    @run_async
-    def del_note(self):
-        self.set_sn_field('note', None, 'Removed note for service node _{}_.')
+    async def del_note(self):
+        await self.set_sn_field('note', None, 'Removed note for service node _{}_.')
 
 
-    @run_async
-    def ask_alias(self):
-        self.request_sn_field('alias',
+    async def ask_alias(self):
+        await self.request_sn_field('alias',
                 "Send me an alias to use for this service node instead of the public key (_{sn[pubkey]}_).  Use /start to cancel.",
                 "The current alias is: {}")
 
 
-    @run_async
-    def del_alias(self):
-        self.set_sn_field('alias', None, 'Removed alias for service node _{}_.')
+    async def del_alias(self):
+        await self.set_sn_field('alias', None, 'Removed alias for service node _{}_.')
 
 
-    @run_async
-    def enable_reward_notify(self):
-        self.set_sn_field('rewards', True,
+    async def enable_reward_notify(self):
+        await self.set_sn_field('rewards', True,
                 "Okay, I'll start sending you block reward notifications for _{}_.")
 
 
-    @run_async
-    def disable_reward_notify(self):
-        self.set_sn_field('rewards', False,
+    async def disable_reward_notify(self):
+        await self.set_sn_field('rewards', False,
                 "Okay, I'll no longer send you block reward notifications for _{}_.")
 
 
-    @run_async
-    def enable_reward_notify_all(self):
+    async def enable_reward_notify_all(self):
         uid = self.get_uid()
         all_sns = ServiceNode.all(uid)
         enabled_for = []
@@ -506,11 +483,10 @@ class TelegramContext(NetworkContext):
                 sn.update(rewards=True)
                 enabled_for.append("_{}_".format(sn.alias()))
 
-        self.service_nodes_menu('Reward notification *enabled* for service nodes {}.'.format(", ".join(enabled_for)))
+        await self.service_nodes_menu('Reward notification *enabled* for service nodes {}.'.format(", ".join(enabled_for)))
 
 
-    @run_async
-    def disable_reward_notify_all(self):
+    async def disable_reward_notify_all(self):
         uid = self.get_uid()
         all_sns = ServiceNode.all(uid)
         disabled_for = []
@@ -519,23 +495,20 @@ class TelegramContext(NetworkContext):
                 sn.update(rewards=False)
                 disabled_for.append("_{}_".format(sn.alias()))
 
-        self.service_nodes_menu('Reward notification *disabled* for service nodes {}.'.format(", ".join(disabled_for)))
+        await self.service_nodes_menu('Reward notification *disabled* for service nodes {}.'.format(", ".join(disabled_for)))
 
 
-    @run_async
-    def enable_expires_soon(self):
-        self.set_sn_field('expires_soon', True,
+    async def enable_expires_soon(self):
+        await self.set_sn_field('expires_soon', True,
                 "Okay, I'll send you expiry notifications when _{}_ is close to expiry (48h, 24h, and 6h).")
 
 
-    @run_async
-    def disable_expires_soon(self):
-        self.set_sn_field('expires_soon', False,
+    async def disable_expires_soon(self):
+        await self.set_sn_field('expires_soon', False,
                 "Okay, I'll stop sending you notifications when _{}_ is close to expiry.")
 
 
-    @run_async
-    def wallets_menu(self, reply_text=''):
+    async def wallets_menu(self, reply_text=''):
         uid = self.get_uid()
 
         wallets = []
@@ -572,11 +545,10 @@ class TelegramContext(NetworkContext):
                 'of the stake (for shared contribution service nodes).  I can also use it to automatically monitor new SNs '
                 'that you register or contribute to.')
 
-        self.send_reply(reply_text, reply_markup=w_menu)
+        await self.send_reply(reply_text, reply_markup=w_menu)
 
 
-    @run_async
-    def forget_wallet(self):
+    async def forget_wallet(self):
         w = self.update.callback_query.data.split(':', 1)[1]
 
         uid = self.get_uid()
@@ -595,49 +567,45 @@ class TelegramContext(NetworkContext):
         if not msgs:
             msgs.append('I didn\'t know about that wallet in the first place!')
 
-        return self.wallets_menu('\n'.join(msgs))
+        return await self.wallets_menu('\n'.join(msgs))
 
 
-    @run_async
-    def ask_wallet(self):
+    async def ask_wallet(self):
         self.expect('wallet')
         msg = 'You can either send the whole wallet address or, if you prefer, just the first 7 (or more) characters of the wallet address.  To register a wallet, send it to me now.  Use /start to cancel.'
-        self.send_reply(msg, expect_reply=True)
+        await self.send_reply(msg, expect_reply=True)
 
 
-    @run_async
-    def find_unmonitored(self, on_none=None):
+    async def find_unmonitored(self, on_none=None):
         if on_none is None:
             on_none = self.wallets_menu
         added = super().find_unmonitored()
         if added:
-            return self.service_nodes_menu(
+            return await self.service_nodes_menu(
                 '\n'.join('Found and added {} {}.'.format(sn.status_icon(), sn.alias()) for sn in added))
         else:
-            return on_none("Didn't find any unmonitored service nodes matching your wallet(s).")
+            return await on_none("Didn't find any unmonitored service nodes matching your wallet(s).")
 
 
-    @run_async
-    def set_automon(self, enabled : bool):
+    async def set_automon(self, enabled : bool):
         enabled = self.set_user_field('auto_monitor', enabled)
-        self.wallets_menu(
+        await self.wallets_menu(
                 'Automatic monitoring of for service nodes you have contributed to is now ' + self.b(
                     "enabled" if enabled else "disabled"))
 
 
-    @run_async
-    def donate(self):
+    async def donate(self):
         chat_id = self.update.callback_query.message.chat_id
         msg = 'Find this bot useful?  Donations appreciated: ' + lokisnbot.config.DONATION_ADDR
         reply_markup = InlineKeyboardMarkup([[InlineKeyboardButton('<< Main menu', callback_data='main')]])
         if lokisnbot.config.DONATION_IMAGE:
-            self.context.bot.send_photo(
+            await self.context.bot.send_photo(
                 chat_id=chat_id,
                 photo=open(lokisnbot.config.DONATION_IMAGE, 'rb'),
                 caption=msg,
                 reply_markup=reply_markup)
         else:
-            self.context.bot.send_message(
+            await self.context.bot.send_message(
                 chat_id=chat_id,
                 text=message,
                 reply_markup=reply_markup)
@@ -648,8 +616,7 @@ class TelegramContext(NetworkContext):
         lokisnbot.logger.warning('Update "%s" caused error "%s"', self.update, self.context.error)
 
 
-    @run_async
-    def dispatch_query(self):
+    async def dispatch_query(self):
         q = self.update.callback_query.data
         edit = True
         call = None
@@ -717,7 +684,7 @@ class TelegramContext(NetworkContext):
 
         if edit:
             try:
-                self.context.bot.edit_message_reply_markup(reply_markup=None,
+                await self.context.bot.edit_message_reply_markup(reply_markup=None,
                         chat_id=self.update.callback_query.message.chat_id,
                         message_id=self.update.callback_query.message.message_id)
             except BadRequest as e:
@@ -726,7 +693,7 @@ class TelegramContext(NetworkContext):
                 else:
                     raise
         if call:
-            return call()
+            return await call()
 
 
 def context_handler(ctx_method):
@@ -737,33 +704,46 @@ def context_handler(ctx_method):
 
 class TelegramNetwork(Network):
     def __init__(self, **kwargs):
-        self.updater = Updater(lokisnbot.config.TELEGRAM_TOKEN, workers=4, use_context=True, **kwargs)
+        self.app = ApplicationBuilder().token(lokisnbot.config.TELEGRAM_TOKEN).build()
 
-        # Get the dispatcher to register handlers
-        dp = self.updater.dispatcher
-
-        dp.add_handler(CommandHandler('start', context_handler(TelegramContext.start)))
-        dp.add_handler(CallbackQueryHandler(context_handler(TelegramContext.dispatch_query)))
-        dp.add_handler(MessageHandler(Filters.text, context_handler(TelegramContext.plain_input)))
+        self.app.add_handler(CommandHandler('start', context_handler(TelegramContext.start)))
+        self.app.add_handler(CallbackQueryHandler(context_handler(TelegramContext.dispatch_query)))
+        self.app.add_handler(MessageHandler(telegram.ext.filters.TEXT, context_handler(TelegramContext.plain_input)))
 
         # log all errors
-        dp.add_error_handler(context_handler(TelegramContext.error))
+        self.app.add_error_handler(context_handler(TelegramContext.error))
 
-    def start(self):
+    def start(self, loop):
+        loop.run_until_complete(self.app.initialize())
+        if self.app.post_init:
+            loop.run_until_complete(self.app.post_init(self.app))
+
         if lokisnbot.config.TELEGRAM_WEBHOOK_URL and lokisnbot.config.TELEGRAM_WEBHOOK_PORT:
-            self.updater.start_webhook(listen='127.0.0.1', url_path='/', port=lokisnbot.config.TELEGRAM_WEBHOOK_PORT,
-                    webhook_url=lokisnbot.config.TELEGRAM_WEBHOOK_URL)
+            loop.run_until_complete(self.app.updater.start_webhook(
+                    listen='127.0.0.1', url_path='/', port=lokisnbot.config.TELEGRAM_WEBHOOK_PORT,
+                    webhook_url=lokisnbot.config.TELEGRAM_WEBHOOK_URL))
         else:
-            self.updater.start_polling()
+            loop.run_until_complete(self.app.updater.start_polling())
 
-    def stop(self):
-        self.updater.stop()
+        loop.run_until_complete(self.app.start())
 
-    def try_message(self, chatid, message, reply_markup=None):
+
+    async def stop(self):
+        if self.app.updater.running:
+            await self.app.updater.stop()
+        if self.app.running:
+            await self.app.stop()
+        if self.app.post_stop:
+            await self.app.post_stop(self.app)
+        await self.app.shutdown()
+        if self.app.post_shutdown:
+            await self.app.post_shutdown(self.app)
+
+    async def try_message(self, chatid, message, reply_markup=None):
         """Send a message to the bot.  If the message gives a 'bot was blocked by the user' error then
         we delete the user's service_nodes (to stop generating more messages)."""
         try:
-            self.updater.bot.send_message(chatid, message, parse_mode=ParseMode.MARKDOWN, reply_markup=reply_markup)
+            await self.app.bot.send_message(chatid, message, parse_mode=ParseMode.MARKDOWN, reply_markup=reply_markup)
         except TelegramError as e:
             if any(x in e.message for x in ('bot was blocked by the user', 'user is deactivated')):
                 print("Telegram user {} blocked me or is no longer active; removing them from SN monitoring ({})".format(chatid, e), flush=True)
@@ -786,4 +766,4 @@ class TelegramNetwork(Network):
                 }
 
     def ready(self):
-        return self.updater.running
+        return self.app.running

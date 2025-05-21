@@ -32,7 +32,7 @@ if not hasattr(config, 'WELCOME'):
 
 
 
-tg, dc = None, None
+tg, dc, loop = None, None, None
 
 
 
@@ -40,17 +40,17 @@ def notify(sn, msg, is_update=True):
     """Notify based on Telegram/Discord status.  Returns true if at least one notification went out.
     is_update controls whether this is a status update, in which case extra info (a link to
     oxen.observer) is added; True by default, should be false for boring notifications like rewards"""
-    global tg, dc
+    global tg, dc, loop
 
     tgid, dcid = sn['telegram_id'], sn['discord_id']
     good = 0
     if tgid:
         extra = tg.sn_update_extra(sn) if is_update else {}
-        if tg.try_message(tgid, msg, **extra):
+        if asyncio.run_coroutine_threadsafe(tg.try_message(tgid, msg, **extra), loop).result():
             good += 1
     if dcid:
         extra = dc.sn_update_extra(sn) if is_update else {}
-        if dc.try_message(dcid, msg, **extra):
+        if asyncio.run_coroutine_threadsafe(dc.try_message(dcid, msg, **extra), loop).result():
             good += 1
 
     return good > 0
@@ -97,7 +97,9 @@ def loki_updater():
             if not s:
                 continue
             for pubkey, x in s.items():
-                if x['registration_height'] >= infinite_from:
+                if x['staking_requirement'] == 0:
+                    expected_dereg_height[pubkey] = 1
+                elif x['registration_height'] >= infinite_from:
                     expected_dereg_height[pubkey] = x['requested_unlock_height']
                 else:
                     expected_dereg_height[pubkey] = x['registration_height'] + TESTNET_STAKE_BLOCKS
@@ -154,6 +156,8 @@ def loki_updater():
                 elif sn['notified_dereg'] or not sn['active']:
                     sn.update(active=True, notified_dereg=False)
 
+                if sn.state('staking_requirement') == 0:
+                    continue
 
                 if sn.decommissioned():
                     if not sn['notified_decomm'] or sn['notified_decomm'] + 60*60 <= now:
@@ -346,43 +350,55 @@ def start_loki_update_thread():
 
 
 def stop_threads(signum, frame):
-    print("Stopping threads and shutting down...")
+    print(f"Stopping threads (signal {signum}) and shutting down...")
     global time_to_die, loki_thread
     time_to_die = True
     loki_thread.join()
     print("Stopped updater thread")
 
-    global tg, dc
-    tg.stop()
-    print("Stopped Telegram")
+    global tg, dc, loop
+    print("Stopping Telegram")
+    loop.call_soon(tg.stop())
 
     if dc:
         print("Stopping Discord")
         dc.stop()
 
+    for task in asyncio.all_tasks():
+        task.cancel()
+    loop.stop()
+
 def main():
+    global tg, dc, loop
+
     pgsql.connect()
+
+    loop = asyncio.get_event_loop()
 
     start_loki_update_thread()
 
     print("Starting Telegram bot")
 
-    global tg, dc
     tg = TelegramNetwork()
     dc = DiscordNetwork() if config.DISCORD_TOKEN else None
 
-    tg.start()
+    tg.start(loop)
     if dc:
         dc.start()
 
-    signal.signal(signal.SIGINT, stop_threads)
-    signal.signal(signal.SIGTERM, stop_threads)
-    signal.signal(signal.SIGABRT, stop_threads)
+    loop.add_signal_handler(signal.SIGINT, stop_threads, signal.SIGINT, None)
+    loop.add_signal_handler(signal.SIGTERM, stop_threads, signal.SIGTERM, None)
+    loop.add_signal_handler(signal.SIGABRT, stop_threads, signal.SIGABRT, None)
 
     print("Bot started")
 
-    pending = asyncio.all_tasks(asyncio.get_event_loop())
-    asyncio.get_event_loop().run_until_complete(asyncio.gather(*pending))
+    try:
+        loop.run_forever()
+    except Exception as e:
+        print(f"Exception running mainloop: {e}")
+
+    if loop.is_running():
+        stop_threads(None, None)
 
     print("Bot ended")
 

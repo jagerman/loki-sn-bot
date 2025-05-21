@@ -351,7 +351,10 @@ class ServiceNode:
 
         proof_age = int(time.time() - self._state['last_uptime_proof'])
         if self.decommissioned():
-            status_icon = '☣'
+            if self._state['staking_requirement'] == 0:
+                status_icon = '🧟'
+            else:
+                status_icon = '☣'
         elif proof_age >= PROOF_AGE_WARNING:
             status_icon = '⚠'
         elif self.lokinet_unreachable() is not None or self.ss_unreachable() is not None:

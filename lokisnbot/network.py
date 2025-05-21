@@ -20,7 +20,7 @@ class Network(metaclass=ABCMeta):
         pass
 
     @abstractmethod
-    def try_message(self, chatid, message, *args, **kwargs):
+    async def try_message(self, chatid, message, *args, **kwargs):
         """Tries sending a message, returning True if successful, false if it failed"""
         return False
 
@@ -93,19 +93,13 @@ class NetworkContext(metaclass=ABCMeta):
         pass
 
 
-    def is_wallet(self, wallet, *, mainnet, testnet, primary=False, partial=False):
-        """Returns true if the wallet looks like a wallet for mainnet or testnet (depending on the
-        given kwargs options).  By default integrated/subaddress wallet addresses are accepted, but
-        this can be disabled using the `primary=True` keyword arg.  If both primary and partial are
-        given, the wallet may be just a primary wallet prefix."""
+    def is_wallet(self, wallet, *, partial=False):
+        """Returns true if the wallet looks like an ETH wallet address.  If partial is True then it
+        can just be a prefix rather than a full address."""
         if partial and len(wallet) < lokisnbot.config.PARTIAL_WALLET_MIN_LENGTH:
             return False
-        patterns = []
-        if mainnet:
-            patterns += (lokisnbot.config.PARTIAL_WALLET_MAINNET if partial else lokisnbot.config.MAINNET_WALLET,) if primary else lokisnbot.config.MAINNET_WALLET_ANY
-        if testnet:
-            patterns += (lokisnbot.config.PARTIAL_WALLET_TESTNET if partial else lokisnbot.config.TESTNET_WALLET,) if primary else lokisnbot.config.TESTNET_WALLET_ANY
-        return any(re.match(p, wallet) for p in patterns)
+
+        return re.match((lokisnbot.config.PARTIAL_WALLET_PATTERN if partial else lokisnbot.config.WALLET_PATTERN), wallet)
 
 
     def breakup_long_message(self, msg, maxlen):
@@ -131,7 +125,7 @@ class NetworkContext(metaclass=ABCMeta):
         return msgs
 
 
-    def main_menu(self, reply, **kwargs):
+    async def main_menu(self, reply, **kwargs):
         if reply:
             reply += '\n\n'
 
@@ -153,10 +147,10 @@ class NetworkContext(metaclass=ABCMeta):
         else:
             reply += "I am not currently monitoring any service nodes for you."
 
-        self.send_reply(reply, **kwargs)
+        await self.send_reply(reply, **kwargs)
 
 
-    def status(self, testnet=False, **kwargs):
+    async def status(self, testnet=False, **kwargs):
         sns = lokisnbot.testnet_sn_states if testnet else lokisnbot.sn_states
         active, decomm, waiting, infinite, old_proof = 0, 0, 0, 0, 0
         unlocking = [0, 0, 0, 0]  # <1 d, <3 days, <1 week, >1 week
@@ -217,12 +211,12 @@ class NetworkContext(metaclass=ABCMeta):
                 b(active_users))
 
         if self.is_dm():
-            self.main_menu(reply_text, **kwargs)
+            await self.main_menu(reply_text, **kwargs)
         else:
-            self.send_reply(reply_text, **kwargs)
+            await self.send_reply(reply_text, **kwargs)
 
 
-    def faucet_was_recently_used(self):
+    async def faucet_was_recently_used(self):
         """Checks if the faucet was recently used and, if so, sends a reply to the user and returns
         True.  Otherwise sends nothing and returns True."""
         cur = pgsql.cursor()
@@ -236,18 +230,18 @@ class NetworkContext(metaclass=ABCMeta):
         global_wait = (last_faucet_use - now) + lokisnbot.config.TESTNET_FAUCET_WAIT_GLOBAL
         user_wait = (last_used - now) + lokisnbot.config.TESTNET_FAUCET_WAIT_USER
         if user_wait > 0:
-            self.send_reply(dead_end=True,
+            await self.send_reply(dead_end=True,
                     message="🤔 It appears that you have already used the faucet recently.  You need to wait another {} before you can use it again.".format(
                         friendly_time(user_wait)))
             return True
         elif global_wait > 0:
-            self.send_reply(dead_end=True,
+            await self.send_reply(dead_end=True,
                     message="🤔 The faucet has been used by someone else recently.  You need to wait another {} before you can use it.".format(
                         friendly_time(global_wait)))
             return True
         return False
 
-    def send_faucet_tx(self, wallet):
+    async def send_faucet_tx(self, wallet):
         """Tries to send a faucet transaction.  Upon error, sends an error message and returns None.
         Upon success, returns the `result` element of the transaction response."""
         try:
@@ -262,11 +256,11 @@ class NetworkContext(metaclass=ABCMeta):
                 }).json()
         except Exception as e:
             print("testnet wallet error: {}".format(e))
-            return self.send_reply(dead_end=True, message='💩 An error occured while communicating with the testnet wallet; please try again later')
+            return await self.send_reply(dead_end=True, message='💩 An error occured while communicating with the testnet wallet; please try again later')
 
         if 'error' in transfer and transfer['error']:
             print("Faucet transfer error: {}".format(transfer['error']))
-            return self.send_reply(dead_end=True, message='☣ '+self.b('Transfer failed')+': {}'.format(transfer['error']['message']))
+            return await self.send_reply(dead_end=True, message='☣ '+self.b('Transfer failed')+': {}'.format(transfer['error']['message']))
 
         print("Faucet success: {}".format(transfer['result']['tx_hash']))
         global last_faucet_use
@@ -276,7 +270,7 @@ class NetworkContext(metaclass=ABCMeta):
         return transfer['result']
 
 
-    def service_node(self, *, snid=None, reply_text='', pubkey=None, sn=None, send=True):
+    async def service_node(self, *, snid=None, reply_text='', pubkey=None, sn=None, send=True):
         """Shows service node details.  If `send` is false, returns (msg, sn) instead of sending it"""
 
         uid = self.get_uid()
@@ -343,7 +337,7 @@ class NetworkContext(metaclass=ABCMeta):
             state_height_ago = ago((height - state_height) * AVERAGE_BLOCK_SECONDS)
             if sn.staked():
                 reg_height = sn.state('registration_height')
-                status = self.b('Active' if sn.active_on_network() else 'DECOMMISSIONED!')
+                status = self.b('Active' if sn.active_on_network() else 'Leaving network' if sn.state('staking_requirement') == 0 else 'DECOMMISSIONED!')
                 reply_text += 'Status: ' + sn.status_icon() + ' ' + status + '\n'
 
                 reply_text += 'Public IP: ' + self.b(sn.state('public_ip')) + '\n'
@@ -423,7 +417,7 @@ class NetworkContext(metaclass=ABCMeta):
                 reply_text += 'Not registered\n'
 
         if send:
-            self.send_reply(reply_text)
+            await self.send_reply(reply_text)
         else:
             return (reply_text, sn)
 
@@ -470,7 +464,7 @@ class NetworkContext(metaclass=ABCMeta):
         return added
 
 
-    def plain_input(self, text, add_sn=False):
+    async def plain_input(self, text, add_sn=False):
         """Called when the bot is given plain input, which it expects to be SN ids to
         display/summarize and, possibly, to add (if `add_sn`).  Returns True if the message
         was good and responses were sent, None if the input couldn't be parsed."""
@@ -533,9 +527,9 @@ class NetworkContext(metaclass=ABCMeta):
 
             if not many:
                 if append_status:
-                    self.service_node(sn=sn, reply_text=summary[-1])
+                    await self.service_node(sn=sn, reply_text=summary[-1])
                 else:
-                    self.send_reply(summary[-1])
+                    await self.send_reply(summary[-1])
                 summary.clear()
             else:
                 if append_status:
@@ -556,10 +550,10 @@ class NetworkContext(metaclass=ABCMeta):
                     summary[-1] += '.'
 
                 if len(summary) >= 10:
-                    self.send_reply(message='\n\n'.join(summary))
+                    await self.send_reply(message='\n\n'.join(summary))
                     summary.clear()
 
         if many and summary:
-            self.send_reply(message='\n\n'.join(summary))
+            await self.send_reply(message='\n\n'.join(summary))
             summary.clear()
         return True

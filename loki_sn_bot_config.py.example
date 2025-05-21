@@ -14,25 +14,13 @@ DISCORD_TOKEN = "FIXME"
 # Postgresql database connection info; see database.pgsql for the SQL to create the needed tables
 PGSQL_CONNECT = { 'dbname': 'lokisnbot' }
 
-MAINNET_WALLET_ANY = (
-        '^L[4-9A-E][1-9A-HJ-NP-Za-km-z]{93}$', # main addr
-        '^L[E-HJ-NPQ][1-9A-HJ-NP-Za-km-z]{104}$', # integrated
-        '^L[Q-Za][1-9A-HJ-NP-Za-km-z]{93}$') # subaddress
-MAINNET_WALLET = MAINNET_WALLET_ANY[0]
-
-
-TESTNET_WALLET_ANY = (
-        '^T[6-9A-G][1-9A-HJ-NP-Za-km-z]{95}$', # main addr
-        '^T[GHJ-NP-R][1-9A-HJ-NP-Za-km-z]{106}$', # integrated
-        '^T[R-Zab][1-9A-HJ-NP-Za-km-z]{95}$') # subaddress
-TESTNET_WALLET = TESTNET_WALLET_ANY[0]
+WALLET_PATTERN = '^0[xX][a-fA-F0-9]{40}$'
 
 # The length and patterns for a wallet prefix.  Both the length and the regex much match for the bot
 # to accept the wallet as a wallet prefix for contribution identification/SN finding (so the regexes
 # here are allowed to under-match).
-PARTIAL_WALLET_MIN_LENGTH = 8
-PARTIAL_WALLET_MAINNET = '^L[4-9A-E][1-9A-HJ-NP-Za-km-z]{0,93}'
-PARTIAL_WALLET_TESTNET = '^T[6-9A-G][1-9A-HJ-NP-Za-km-z]{0,95}'
+PARTIAL_WALLET_MIN_LENGTH = 10
+PARTIAL_WALLET_PATTERN = '^0[xX][0-9a-fA-F]{0,40}$'
 
 # URL to a loki node's RPC interface.  Should not end in a /.
 NODE_URL = 'http://localhost:22023'
