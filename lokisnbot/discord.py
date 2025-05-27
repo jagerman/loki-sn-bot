@@ -559,7 +559,6 @@ class DiscordNetwork(Network):
             message += '\n' + append
         try:
             await self.message_user(chatid, message)
-            future.result()
         except Exception as e:
             print("Sending to user {} failed: {}".format(chatid, e))
             return False
