@@ -242,6 +242,14 @@ class ServiceNode:
         return self._state['storage_server_first_unreachable']
 
 
+    def sr_unreachable(self):
+        """Same as above, but for session router"""
+        if 'session_router_reachable' not in self._state or self._state['session_router_reachable']:
+            return None
+
+        return self._state['session_router_first_unreachable']
+
+
     def decomm_credit_blocks(self):
         """Returns the number of blocks of decomm credit remaining (if decommissioned) or available for decomm (if active)."""
         blocks = None
@@ -347,7 +355,8 @@ class ServiceNode:
                 status_icon = '☣'
         elif proof_age >= PROOF_AGE_WARNING:
             status_icon = '⚠'
-        elif self.lokinet_unreachable() is not None or self.ss_unreachable() is not None:
+        elif (self.lokinet_unreachable() is not None or self.ss_unreachable() is not None
+                or self.sr_unreachable() is not None):
             status_icon = '⛔'
         elif ((lokisnbot.config.WARN_VERSION_LESS_THAN and self.version() < lokisnbot.config.WARN_VERSION_LESS_THAN)
                 or (lokisnbot.config.LATEST_VERSION and self.version() < lokisnbot.config.LATEST_VERSION)):

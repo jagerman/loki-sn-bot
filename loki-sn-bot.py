@@ -190,17 +190,20 @@ def loki_updater():
 
                 lokinet_unreachable = sn.lokinet_unreachable()
                 ss_unreachable = sn.ss_unreachable()
-                unreachable = lokinet_unreachable is not None or ss_unreachable is not None
+                sr_unreachable = sn.sr_unreachable()
+                unreachable = lokinet_unreachable is not None or ss_unreachable is not None or sr_unreachable is not None
                 if unreachable:
                     if not sn['notified_unreachable'] or time.time() - sn['notified_unreachable'] > UNREACHABLE_REPEAT:
                         lokinet_msg = ('\n⛔ Lokinet has been unreachable for {}'.format(util.friendly_time(int(time.time()) - lokinet_unreachable))
                                 if lokinet_unreachable else '')
                         ss_msg = ('\n⛔ Storage Server has been unreachable for {}'.format(util.friendly_time(int(time.time()) - ss_unreachable))
                                 if ss_unreachable else '')
-                        if notify(sn, prefix+f'⚠ *WARNING:* Service node _{name}_ is unreachable:{lokinet_msg}{ss_msg}'):
+                        sr_msg = ('\n⛔ Session Router has been unreachable for {}'.format(util.friendly_time(int(time.time()) - sr_unreachable))
+                                if sr_unreachable else '')
+                        if notify(sn, prefix+f'⚠ *WARNING:* Service node _{name}_ is unreachable:{lokinet_msg}{ss_msg}{sr_msg}'):
                             sn.update(notified_unreachable=int(time.time()))
                 elif sn['notified_unreachable']:
-                    if notify(sn, prefix+'😌 Service node _{}_ Lokinet & Storage Server are now reachable'.format(name)):
+                    if notify(sn, prefix+'😌 Service node _{}_ services are now reachable'.format(name)):
                         sn.update(notified_unreachable=None)
 
 

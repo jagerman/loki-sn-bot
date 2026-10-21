@@ -387,6 +387,11 @@ class NetworkContext(metaclass=ABCMeta):
 
                 reply_text += '\nStorage: '
                 append_reachable(sn.ss_unreachable(), 'storage_server')
+
+                # Only oxend versions with session router support report its reachability
+                if sn.state('session_router_reachable') is not None:
+                    reply_text += '\nSession Router: '
+                    append_reachable(sn.sr_unreachable(), 'session_router')
                 reply_text += '\n'
 
                 reply_text += ('Stake: '+self.b('{:.9f}')+'\nReg. height: '+self.b('{}')+' (approx. {})\n').format(
