@@ -324,12 +324,14 @@ class NetworkContext(metaclass=ABCMeta):
             reply_text += 'Last uptime proof: ' + sn.format_proof_age() + '\n'
 
             ver, verstr = sn.version(), sn.version_str()
-            reply_text += 'Versions (oxend/lokinet/storage): ' + (self.b(verstr) if verstr else 'unknown')
+            reply_text += 'Versions (oxend/lokinet/storage/session-router): ' + (self.b(verstr) if verstr else 'unknown')
             if lokisnbot.config.WARN_VERSION_MSG and lokisnbot.config.WARN_VERSION_LESS_THAN and ver and ver < lokisnbot.config.WARN_VERSION_LESS_THAN:
                 reply_text += ' ' + lokisnbot.config.WARN_VERSION_MSG
-            lokinet_ver, ss_ver = sn.state('lokinet_version'), sn.state('storage_server_version')
+            lokinet_ver, ss_ver, sr_ver = sn.state('lokinet_version'), sn.state('storage_server_version'), sn.state('session_router_version')
             reply_text += '/{}'.format(self.b('.'.join(str(x) for x in lokinet_ver)) if lokinet_ver else 'unknown')
             reply_text += '/{}'.format(self.b('.'.join(str(x) for x in ss_ver)) if ss_ver else 'unknown')
+            # Older oxend omits this field; newer oxend reports 0.0.0 for nodes whose proofs predate it
+            reply_text += '/{}'.format(self.b('.'.join(str(x) for x in sr_ver)) if sr_ver and any(sr_ver) else '(N/A)')
             reply_text += '\n'
 
             expiry_block = sn.expiry_block()
@@ -355,7 +357,10 @@ class NetworkContext(metaclass=ABCMeta):
             if sn.staked():
                 reg_height = sn.state('registration_height')
                 status = self.b('Active' if sn.active_on_network() else 'Leaving network' if sn.state('staking_requirement') == 0 else 'DECOMMISSIONED!')
-                reply_text += 'Status: ' + sn.status_icon() + ' ' + status + '\n'
+                reply_text += 'Status: ' + sn.status_icon() + ' ' + status
+                if sn.upgrade_available():
+                    reply_text += ' ({} upgrade available)'.format(ServiceNode.to_version_string(lokisnbot.config.LATEST_VERSION))
+                reply_text += '\n'
 
                 reply_text += 'Public IP: ' + self.b(sn.state('public_ip')) + '\n'
 

@@ -296,6 +296,12 @@ class ServiceNode:
         return ServiceNode.to_version_string(self.version())
 
 
+    def upgrade_available(self):
+        """Returns True if the service node is running a version older than LATEST_VERSION."""
+        ver = self.version()
+        return bool(lokisnbot.config.LATEST_VERSION and ver and ver < lokisnbot.config.LATEST_VERSION)
+
+
     def moon_symbol(self, pct=None):
         if pct is None:
             pct = 0
@@ -359,7 +365,7 @@ class ServiceNode:
                 or self.sr_unreachable() is not None):
             status_icon = '⛔'
         elif ((lokisnbot.config.WARN_VERSION_LESS_THAN and self.version() < lokisnbot.config.WARN_VERSION_LESS_THAN)
-                or (lokisnbot.config.LATEST_VERSION and self.version() < lokisnbot.config.LATEST_VERSION)):
+                or self.upgrade_available()):
             status_icon = '🔼'
         elif self._state['total_contributed'] < self._state['staking_requirement']:
             status_icon = self.moon_symbol()
