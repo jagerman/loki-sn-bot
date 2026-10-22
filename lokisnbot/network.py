@@ -385,7 +385,13 @@ class NetworkContext(metaclass=ABCMeta):
                     if not reach_ago and not unreach_ago:
                         reply_text += self.i('Not recently tested')
                         return
-                    reach_ago = ago(int(time.time()) - reach_ago) if reach_ago else self.i('unknown')
+                    if reach_ago:
+                        reach_ago = ago(int(time.time()) - reach_ago)
+                    elif unreachable:
+                        # Every test since first_unreachable has failed, so any success predates it
+                        reach_ago = 'more than ' + ago(int(time.time()) - unreachable)
+                    else:
+                        reach_ago = self.i('unknown')
                     unreach_ago = ago(int(time.time()) - unreach_ago) if unreach_ago else self.i('unknown')
                     if unreachable is None:
                         reply_text += f'Reachable (tested {reach_ago}; last failure {unreach_ago})'
